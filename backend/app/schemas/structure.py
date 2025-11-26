@@ -1,3 +1,4 @@
+from datetime import date
 from pydantic import BaseModel
 from typing import Optional
 
@@ -56,15 +57,19 @@ class Bauteil(BaseModel):
 class StiegeUpdate(BaseModel):
     name: Optional[str] = None
     process_model_id: Optional[int] = None
+    start_soll: date | None = None
 
 class BauteilUpdate(BaseModel):
     name: Optional[str] = None
     process_model_id: Optional[int] = None
+    start_soll: date | None = None
 
 class EbeneUpdate(BaseModel):
     name: Optional[str] = None
     process_model_id: Optional[int] = None
+    start_soll: date | None = None
 
 class TopUpdate(BaseModel):
     name: Optional[str] = None
     process_model_id: Optional[int] = None
+    start_soll: date | None = None

@@ -106,6 +106,7 @@ def structure_timeline(
     # grupiranje: ključ = (segment_id, segment_name, activity)
     from collections import defaultdict
     groups: Dict[Tuple[int, str, str], List[Task]] = defaultdict(list)
+    segment_meta: Dict[Tuple[int, str], Optional[str]] = {} 
 
     def segment_of(t: Task):
         if level == "ebene":
@@ -123,6 +124,34 @@ def structure_timeline(
             continue
         act = t.process_step.activity if t.process_step else "(ohne Aktivität)"
         groups[(seg_id, seg_name, act)].append(t)
+
+        # 👇 NOVO: izračunaj "putanju" za dati segment
+        seg_key = (seg_id, seg_name)
+        if seg_key not in segment_meta:
+            top = t.top
+            ebene = top.ebene if top else None
+            stiege = ebene.stiege if ebene else None
+            bauteil = stiege.bauteil if stiege else None
+
+            path: Optional[str] = None
+
+            if level == "ebene":
+                # ispod Ebene želimo npr: "Bauteil-1 - Stiege-1"
+                bt_name = bauteil.name if bauteil else None
+                st_name = stiege.name if stiege else None
+                parts = [p for p in (bt_name, st_name) if p]
+                path = " - ".join(parts) if parts else None
+
+            elif level == "stiege":
+                # ispod Stiege npr: "Bauteil-1"
+                bt_name = bauteil.name if bauteil else None
+                path = bt_name
+
+            elif level == "bauteil":
+                # ako hoćeš, ovdje možeš kasnije dodati projekt, za sad ništa
+                path = None
+
+            segment_meta[seg_key] = path
 
     # složi odgovor
     by_segment: Dict[Tuple[int, str], List[StructActivity]] = defaultdict(list)
@@ -169,12 +198,24 @@ def structure_timeline(
 
     segments: List[StructSegment] = []
     for (seg_id, seg_name), acts in by_segment.items():
-        segments.append(StructSegment(level=level, id=seg_id, name=seg_name, activities=sorted(
-            acts, key=lambda a: (a.start or date.max, a.activity)
-        )))
+        seg_key = (seg_id, seg_name)
+        path = segment_meta.get(seg_key)
+
+        segments.append(
+            StructSegment(
+                level=level,
+                id=seg_id,
+                name=seg_name,
+                structure_path=path,  # 👈 NOVO
+                activities=sorted(
+                    acts, key=lambda a: (a.start or date.max, a.activity)
+                ),
+            )
+        )
 
     return StructureTimelineResponse(
         project_id=project_id,
         level=level,
         segments=sorted(segments, key=lambda s: s.name.lower())
     )
+

@@ -153,11 +153,18 @@ export default function StructureTimelinePage() {
         return {
           id: String(s.id),
           title: s.name,
-          extendedProps: { level: s.level, totalTasks, doneTasks, delayedCnt },
+          extendedProps: {
+            level: s.level,
+            totalTasks,
+            doneTasks,
+            delayedCnt,
+            structurePath: s.structure_path, // 👈 OVO DODAJ
+          },
         };
       })
       .sort((a, b) => a.title.localeCompare(b.title, "de", { numeric: true }));
   }, [data]);
+  
 
   // ======== EVENTS =========
   const events = React.useMemo(() => {
@@ -222,16 +229,28 @@ export default function StructureTimelinePage() {
       doneTasks = 0,
       totalTasks = 0,
       delayedCnt = 0,
+      structurePath,
     } = arg.resource.extendedProps || {};
+
     const wrap = document.createElement("div");
     wrap.style.display = "flex";
     wrap.style.flexDirection = "column";
     wrap.style.gap = "2px";
+
     const line1 = document.createElement("div");
     line1.textContent = String(title ?? "");
     line1.style.fontWeight = "600";
     line1.style.fontSize = "12px";
     wrap.appendChild(line1);
+
+    if (structurePath) {
+      const linePath = document.createElement("div");
+      linePath.textContent = structurePath; // npr. "Bauteil-1 - Stiege-1"
+      linePath.style.fontSize = "10px";
+      linePath.style.opacity = "0.8";
+      wrap.appendChild(linePath);
+    }
+
     const line2 = document.createElement("div");
     line2.style.fontSize = "10px";
     line2.style.opacity = "0.85";
@@ -239,9 +258,10 @@ export default function StructureTimelinePage() {
       `✔ ${doneTasks}/${totalTasks}` +
       (delayedCnt ? `   •   ⚠ ${delayedCnt}` : "");
     wrap.appendChild(line2);
+
     return { domNodes: [wrap] };
   };
-
+  
   // ======== Custom toolbar =========
   const goPrev = () => calRef.current?.getApi()?.prev();
   const goNext = () => calRef.current?.getApi()?.next();

@@ -1,12 +1,11 @@
 import axios, {
   AxiosHeaders,
-  type AxiosRequestConfig,
   type InternalAxiosRequestConfig,
 } from "axios";
 
 // 1) Base URL
-export const baseURL =
-  (import.meta as any)?.env?.VITE_API_URL || "http://localhost:8000";
+export const baseURL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+
 
 // 2) Loader bridge (App.tsx ga puni i smije ga “gasiti”)
 export const loaderBridge: {

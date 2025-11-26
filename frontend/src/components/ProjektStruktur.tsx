@@ -418,27 +418,8 @@ const ProjektStruktur: React.FC<ProjektStrukturProps> = ({
       const pid = bauteile?.[0]?.project_id;
       if (!pid) return;
 
-      // 1) upiši sve pending PM-ove (kao i do sada)
-      const entries = Object.entries(pendingPM);
-      if (entries.length) {
-        for (const [k, pm] of entries) {
-          const [t, idStr] = k.split(":") as [EntityType, string];
-          const id = Number(idStr);
-          const collection = typeToPath[t];
-
-          let name: string | undefined = undefined;
-          try {
-            const res = await api.get(`/${collection}/${id}`);
-            name = res.data?.name ?? undefined;
-          } catch {}
-
-          await api.put(
-            `/${collection}/${id}`,
-            name ? { name, process_model_id: pm } : { process_model_id: pm }
-          );
-        }
+      if (Object.keys(pendingPM).length) {
         setPendingPM({});
-        await loadStructure();
       }
 
       // 2) složi start_map po TOP-ovima – SAMO oni s eksplicitnim (ili naslijeđenim) datumom

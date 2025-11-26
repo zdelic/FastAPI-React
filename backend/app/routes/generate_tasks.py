@@ -221,9 +221,11 @@ async def generate_tasks(project_id: int, request: Request, db: Session = Depend
 
     details = {
         "project_id": project_id,
-        "created_count": len(created_tasks),
-        "skipped_no_model": skipped_no_model[:200],
-        "skipped_duplicates": skipped_duplicates[:200],
+        "Projektname": project.name,
+        "anzahl_aktivitäten": len(created_tasks),
+        "übersprungen_kein_Modell": skipped_no_model[:200],
+        "übersprungen_duplikate": skipped_duplicates[:200],
+        "project_name": project.name, 
     }
     if debug:
         details["trace"] = traces[:200]

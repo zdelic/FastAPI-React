@@ -48,10 +48,31 @@ def create_user(data: UserCreate, request: Request, db: Session = Depends(get_db
         phone=data.phone,
         avatar_url=data.avatar_url,
     )
-    db.add(user); db.commit(); db.refresh(user)
-    log_protocol(db, request, action="user.create", ok=True, status_code=201,
-                 details={"user_id": user.id, "email": user.email})
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # LOG: svi podaci novog korisnika
+    log_protocol(
+        db,
+        request,
+        action="user.create",
+        ok=True,
+        status_code=201,
+        details={
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "address": user.address,
+            "phone": user.phone,
+            "avatar_url": user.avatar_url,
+        },
+    )
+
     return user
+
+
 
 @router.patch("/{user_id}", response_model=UserRead, dependencies=[Depends(require_admin)])
 def update_user(user_id: int, patch: UserUpdate, request: Request, db: Session = Depends(get_db)):
@@ -63,28 +84,87 @@ def update_user(user_id: int, patch: UserUpdate, request: Request, db: Session =
     if "role" in data and data["role"] and data["role"] not in ROLES:
         raise HTTPException(status_code=400, detail="Ungültige Rolle")
 
+    # stari podaci radi diffa
+    fields = ["name", "email", "role", "address", "phone", "avatar_url"]
+    old_values = {f: getattr(user, f, None) for f in fields}
+
+    # primijeni patch
     for k, v in data.items():
         setattr(user, k, v)
-    db.commit(); db.refresh(user)
-    log_protocol(db, request, action="user.update", ok=True, status_code=200,
-                 details={"user_id": user.id, "changes": patch.model_dump(exclude_unset=True)})
+    db.commit()
+    db.refresh(user)
+
+    # izračunaj promjene
+    changes: dict[str, dict[str, object]] = {}
+    for k, new_val in data.items():
+        old_val = old_values.get(k)
+        if old_val != getattr(user, k, None):
+            changes[k] = {"old": old_val, "new": getattr(user, k, None)}
+
+    # LOG: diff + trenutni snapshot usera
+    log_protocol(
+        db,
+        request,
+        action="user.update",
+        ok=True,
+        status_code=200,
+        details={
+            "user_id": user.id,
+            "user_name": user.name,
+            "changes": changes,
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "role": user.role,
+            "address": user.address,
+            "phone": user.phone,
+            "avatar_url": user.avatar_url,
+        },
+    )
+
     return user
+
 
 @router.delete("/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User nicht gefunden")
-    db.delete(user); db.commit()
-    log_protocol(db, request, action="user.delete", ok=True, status_code=204,
-                 details={"user_id": user.id, "email": user.email})
+
+    # snapshot prije brisanja
+    details = {
+        "user_id": user.id,
+        "user_name": user.name,
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "address": user.address,
+        "phone": user.phone,
+        "avatar_url": user.avatar_url,
+    }
+
+    db.delete(user)
+    db.commit()
+
+    log_protocol(
+        db,
+        request,
+        action="user.delete",
+        ok=True,
+        status_code=204,
+        details=details,
+    )
+
+    return  # 204
+
 
 # --- Avatar (admin ili vlasnik) --------------------------------------------
 
 @router.post("/{user_id}/avatar", response_model=UserRead)
 async def upload_avatar(
     user_id: int,
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),    
     db: Session = Depends(get_db),
     current: User = Depends(get_current_user),
 ):

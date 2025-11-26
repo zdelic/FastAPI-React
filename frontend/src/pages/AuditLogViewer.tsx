@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Search,
@@ -10,6 +11,7 @@ import {
   Check,
   X,
 } from "lucide-react";
+
 
 /* =========================
    TYPES
@@ -46,11 +48,13 @@ const API_URL = "http://127.0.0.1:8000/api/audit-logs";
 // Prikaži lokalno vrijeme. Ako ISO nema Z/offset, tretiramo ga kao UTC.
 const fmtDate = (iso?: string | null) => {
   if (!iso) return "";
-  const hasTZ = /[zZ]|[+\-]\d\d:\d\d$/.test(iso);
+  const hasTZ = /[zZ]|[+-]\d\d:\d\d$/.test(iso);
   const s = hasTZ ? iso : iso + "Z";
   const d = new Date(s);
   return d.toLocaleString();
 };
+
+
 
 function useDebouncedValue<T>(value: T, delay = 400) {
   const [debounced, setDebounced] = useState<T>(value);
@@ -123,34 +127,68 @@ function actionLabel(action: string) {
   const MAP: Record<string, string> = {
     "auth.login": "Benutzeranmeldung",
     "auth.logout": "Benutzer abgemeldet",
-    "task.create": "Task angelegt",
-    "task.update": "Task aktualisiert",
-    "task.delete": "Task gelöscht",
-    "task.bulk.assign_sub": "Subunternehmen den Aufgaben zugewiesen",
+
+    "task.create": "Aktivität angelegt",
+    "task.update": "Aktivität aktualisiert",
+    "task.delete": "Aktivität gelöscht",
+    "task.bulk.assign_sub": "Subunternehmen den Aktivitäten zugewiesen",
+    "task.sync": "Aktivitäten aktualisieren",
+    "task.generate": "Aktivitäten automatisch generiert",
+    "task.bulk.mark_done": "Aktivitäten als erledigt markiert",
+
+    "processmodel.create": "Prozessmodell angelegt",
     "processmodel.update": "Prozessmodell aktualisiert",
+    "processmodel.delete": "Prozessmodell gelöscht",
+
     "user.create": "Benutzer angelegt",
     "user.update": "Benutzer aktualisiert",
     "user.delete": "Benutzer gelöscht",
+
+    // 👇 projekt akcije
+    "project.create": "Projekt angelegt",
+    "project.update": "Projekt aktualisiert",
+    "project.delete": "Projekt gelöscht",
+    "project.user.add": "Benutzer zum Projekt hinzugefügt",
+    "project.user.remove": "Benutzer aus Projekt entfernt",
+    "project.users.replace": "Projektbenutzer ersetzt",
   };
   if (MAP[action]) return MAP[action];
-  // fallback: tehnički kod „uljepšaj”
-  return action
-    .replace(/\./g, " → ")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+  return action.replace(/\./g, " → ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
+
 
 function DetailsCell({ value }: { value: unknown }) {
   if (value == null) return null;
 
   let obj: any = value;
   if (typeof value === "string") {
-    try { obj = JSON.parse(value); } catch { /* raw string */ }
+    try {
+      obj = JSON.parse(value);
+    } catch {
+      /* raw string */
+    }
   }
+  // ako backend šalje created: [] (prazno), sakrij ga iz prikaza
+  if (
+    obj &&
+    typeof obj === "object" &&
+    Array.isArray((obj as any).created) &&
+    (obj as any).created.length === 0
+  ) {
+    delete (obj as any).created;
+  }
+
+  const keyTranslations: Record<string, string> = {
+    count: "Anzahl",
+  };
+  
 
   if (typeof obj !== "object" || obj === null) {
     return (
       <details>
-        <summary className="cursor-pointer select-none text-xs text-gray-600">Rohdaten</summary>
+        <summary className="cursor-pointer select-none text-xs text-gray-600">
+          Rohdaten
+        </summary>
         <pre className="bg-gray-50 p-2 rounded border overflow-auto max-h-64 whitespace-pre-wrap text-xs">
           {String(value)}
         </pre>
@@ -158,16 +196,100 @@ function DetailsCell({ value }: { value: unknown }) {
     );
   }
 
+  // SPECIJALNI PRIKAZ ZA task.sync
+  if (obj.start_soll_changes) {
+    return (
+      <details open>
+        <summary className="cursor-pointer select-none text-xs text-gray-600">
+          Strukturierte Details
+        </summary>
+
+        <div className="mt-2 border rounded bg-white p-2 text-xs max-h-64 overflow-auto">
+          <b>Start/End Soll Änderungen</b>
+          <table className="w-full mt-1 text-[11px]">
+            <thead>
+              <tr className="border-b">
+                <th className="px-2 py-1 text-left">Task ID</th>
+                <th className="px-2 py-1 text-left">Start Soll</th>
+                <th className="px-2 py-1 text-left">Ende Soll</th>
+              </tr>
+            </thead>
+            <tbody>
+              {obj.start_soll_changes.map((chg: any) => (
+                <tr key={chg.task_id} className="border-b">
+                  <td className="px-2 py-1 break-all">{chg.task_id}</td>
+                  <td className="px-2 py-1 break-all">
+                    {chg.start_soll
+                      ? `${chg.start_soll.old} → ${chg.start_soll.new}`
+                      : "—"}
+                  </td>
+                  <td className="px-2 py-1 break-all">
+                    {chg.end_soll
+                      ? `${chg.end_soll.old} → ${chg.end_soll.new}`
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    );
+  }
+
+  // posebni prikaz za slučaj kad NEMA promjena (nema `changes`)
+  if ((obj.top_path || obj.process_model_name) && !obj.changes) {
+    return (
+      <details open>
+        <summary className="cursor-pointer text-xs text-gray-600">
+          Strukturierte Details
+        </summary>
+
+        <div className="mt-2 space-y-2">
+          {obj.top_path && (
+            <div className="text-xs border rounded p-2 bg-white break-all">
+
+              <span className="text-gray-500">Pfad:</span> <b>{obj.top_path}</b>
+            </div>
+          )}
+
+          {obj.process_model_name && (
+            <div className="text-xs border rounded p-2 bg-white break-all">
+
+              <span className="text-gray-500">Prozessmodell:</span>{" "}
+              <b>{obj.process_model_name}</b>
+            </div>
+          )}
+        </div>
+      </details>
+    );
+  }
+
   const loc = obj.location as any;
   const locStr = loc
-    ? [loc?.bauteil, loc?.stiege, loc?.ebene, loc?.top].filter(Boolean).join(" • ")
+    ? [loc?.bauteil, loc?.stiege, loc?.ebene, loc?.top]
+        .filter(Boolean)
+        .join(" • ")
     : null;
+
+  const userName = obj.user_name as string | undefined;
+  const userId = obj.user_id as number | string | undefined;
 
   const subName = obj.sub_name as string | undefined;
   const subId = obj.sub_id as number | string | undefined;
-  const tasks: Array<{id:number|string; name?:string; location?:string}> = Array.isArray(obj.tasks) ? obj.tasks : [];
+  const tasks: Array<{
+    id: number | string;
+    name?: string;
+    location?: string;
+  }> = Array.isArray(obj.tasks) ? obj.tasks : [];
 
   const changes = (obj.changes as Record<string, any>) || undefined;
+  const isSkipWindow =
+    obj.start != null &&
+    obj.end != null &&
+    obj.moved != null &&
+    obj.days_shifted != null;
+
 
   const labelMap: Record<string, string> = {
     start_soll: "Start (Soll)",
@@ -176,61 +298,229 @@ function DetailsCell({ value }: { value: unknown }) {
     end_ist: "Ende (Ist)",
     status: "Status",
     beschreibung: "Beschreibung",
+    name: "Projektname",
+    description: "Beschreibung",
+    start_date: "Startdatum",
+    process_model_name: "Prozessmodell",
   };
-  const show = (val: any) =>
-    val === null || val === undefined || val === "" ? "–" :
-    typeof val === "object" ? tryStringify(val) : String(val);
 
-  // „ostatak“ RAW-a (osim polja koja posebno renderamo)
-  const known = new Set(["task_id", "task_name", "location", "changes"]);
+  // pokuša prepoznati ISO datum i vratiti ga kao dd.mm.yyyy
+  function formatMaybeDate(val: any): string | null {
+    if (val instanceof Date) {
+      return val.toLocaleDateString("de-AT", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    }
+    if (typeof val === "string") {
+      const m = val.match(/^(\d{4})-(\d{2})-(\d{2})/); // 2025-11-21 ili 2025-11-21T...
+      if (m) {
+        const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+        if (!Number.isNaN(d.getTime())) {
+          return d.toLocaleDateString("de-AT", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+          });
+        }
+      }
+    }
+    return null;
+  }
+
+  const entity = obj.entity as string | undefined;
+
+  const show = (val: any) => {
+    if (val === null || val === undefined || val === "") return "–";
+    const asDate = formatMaybeDate(val);
+    if (asDate) return asDate;
+    if (typeof val === "object") return tryStringify(val);
+    return String(val);
+  };
+
+  // 👇 Specijalni prikaz za task.sync (start_soll_changes)
+  if (
+    Array.isArray((obj as any).start_soll_changes) &&
+    (obj as any).start_soll_changes.length > 0
+  ) {
+    const changes = (obj as any).start_soll_changes as any[];
+
+    const formatRange = (diff: any) => {
+      if (!diff || (diff.old == null && diff.new == null)) return "–";
+      const oldStr = diff.old ? show(diff.old) : "–";
+      const newStr = diff.new ? show(diff.new) : "–";
+      return `Alt: ${oldStr}   Neu: ${newStr}`;
+    };
+
+    const formatLocation = (loc: any) => {
+      if (!loc || typeof loc !== "object") return "";
+      const parts = [
+        loc.project,
+        loc.bauteil,
+        loc.stiege,
+        loc.ebene,
+        loc.top,
+      ].filter(Boolean);
+      return parts.join(" • ");
+    };
+
+    return (
+      <details open>
+        <summary className="cursor-pointer select-none text-xs text-gray-600">
+          Strukturierte Details
+        </summary>
+        <div className="mt-2 border rounded bg-white p-2 text-xs max-h-64 overflow-auto">
+          <b>Start/End Soll Änderungen</b>
+          <table className="w-full mt-1 text-[11px]">
+            <thead>
+              <tr className="border-b">
+                <th className="px-2 py-1 text-left">Task</th>
+                <th className="px-2 py-1 text-left">Struktur</th>
+                <th className="px-2 py-1 text-left">Start (Soll)</th>
+                <th className="px-2 py-1 text-left">Ende (Soll)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {changes.map((chg, idx) => (
+                <tr key={chg.task_id ?? idx} className="border-b last:border-0">
+                  <td className="px-2 py-1 break-all">
+                    <code className="text-[11px] bg-gray-50 border rounded px-1">
+                      {chg.task_id}
+                    </code>
+                    {chg.task_name ? (
+                      <span className="ml-1">{chg.task_name}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1 break-all">{formatLocation(chg.location)}</td>
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    {formatRange(chg.start_soll)}
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    {formatRange(chg.end_soll)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    );
+  }
+
+  const known = new Set([
+    "task_id",
+    "task_name",
+    "location",
+    "changes",
+    "process_model_id",
+    "project_id",
+    "project_name",
+    "user_id",
+    "user_name",
+    "tasks",
+    "start",
+    "end",
+    "skip_weekends",
+    "moved",
+    "days_shifted",
+    "filters",
+  ]);
   const restEntries = Object.entries(obj).filter(([k]) => !known.has(k));
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 break-words overflow-hidden">
       {(obj.task_id || obj.task_name) && (
         <div className="text-xs">
-          <span className="text-gray-500">Task:</span>{" "}
-          <b>{obj.task_id}</b>
+          <span className="text-gray-500">Task:</span> <b>{obj.task_id}</b>
           {obj.task_name ? <span> — {obj.task_name}</span> : null}
           {locStr ? <span> ({locStr})</span> : null}
         </div>
       )}
 
       {/* Sve pripremljene (strukturirane) detalje skupimo u padajući blok */}
-      {(changes || restEntries.length > 0) && (
-        <details>
-          <summary className="cursor-pointer select-none text-xs text-gray-600">
-            Strukturierte Details
-          </summary>
+      {(changes || restEntries.length > 0 || userId || userName) && (
+        <div>
           {(subId || subName) && (
             <div className="text-xs border rounded p-2 bg-white">
               <span className="text-gray-500">Subunternehmen:</span>{" "}
               <b>{subName || "—"}</b>
-              {subId ? <span className="text-gray-400"> (#{subId})</span> : null}
+              {subId ? (
+                <span className="text-gray-400"> (#{subId})</span>
+              ) : null}
+            </div>
+          )}
+
+          {(userId || userName) && (
+            <div className="text-xs border rounded p-2 bg-white">
+              <span className="text-gray-500">Benutzer:</span>{" "}
+              <b>{userName || "—"}</b>
+              {userId ? (
+                <span className="text-gray-400"> (#{userId})</span>
+              ) : null}
             </div>
           )}
 
           {tasks.length > 0 && (
-            <div className="text-xs border rounded p-2 bg-white">
+            <div className="text-xs border rounded p-2 bg-white max-h-48 overflow-auto">
               <div className="mb-1 text-gray-500">Zugewiesene Aufgaben:</div>
               <div className="space-y-1">
-                {tasks.map(t => (
-                  <div key={t.id} className="flex items-center gap-2">
-                    <code className="text-[11px] bg-gray-50 border rounded px-1">{t.id}</code>
+                {tasks.map((t) => (
+                  <div key={t.id} className="flex flex-wrap items-center gap-2">
+                    <code className="text-[11px] bg-gray-50 border rounded px-1">
+                      {t.id}
+                    </code>
                     <span className="font-medium">{t.name || ""}</span>
-                    {t.location ? <span className="text-gray-500">({t.location})</span> : null}
+                    {t.location ? (
+                      <span className="text-gray-500">({t.location})</span>
+                    ) : null}
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {isSkipWindow && (
+            <div className="text-xs border rounded p-2 bg-white mt-2">
+              <div className="mb-1 text-gray-500">Zeitsprung:</div>
+              <div className="grid grid-cols-1 gap-y-1">
+                <div>
+                  <span className="text-gray-500">Start:</span>{" "}
+                  <b>{show(obj.start)}</b>
+                </div>
+                <div>
+                  <span className="text-gray-500">Ende:</span>{" "}
+                  <b>{show(obj.end)}</b>
+                </div>
+                <div>
+                  <span className="text-gray-500">
+                    Wochenenden überspringen:
+                  </span>{" "}
+                  <b>{obj.skip_weekends ? "Ja" : "Nein"}</b>
+                </div>
+                <div>
+                  <span className="text-gray-500">Verschobene Aufgaben:</span>{" "}
+                  <b>{obj.moved}</b>
+                </div>
+                <div>
+                  <span className="text-gray-500">Tage verschoben:</span>{" "}
+                  <b>{obj.days_shifted}</b>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mt-1 space-y-2">
             {changes && (
               <div className="text-xs bg-gray-50 border rounded p-2 max-h-48 overflow-auto">
                 {Object.entries(changes).map(([k, v]) => {
-                  const prettyKey = labelMap[k] ?? k;
+                  let prettyKey = labelMap[k] ?? k;
+                  if (k === "name" && entity === "Prozessmodell") {
+                    prettyKey = "Prozessmodell";
+                  }
                   const isObj = v !== null && typeof v === "object";
-                  const hasDiffKeys = isObj && ("old" in (v as any) || "new" in (v as any));
+                  const hasDiffKeys =
+                    isObj && ("old" in (v as any) || "new" in (v as any));
                   if (hasDiffKeys) {
                     const oldVal = (v as any).old;
                     const newVal = (v as any).new;
@@ -240,23 +530,26 @@ function DetailsCell({ value }: { value: unknown }) {
                         <code className="text-[11px] px-1 rounded bg-white border min-w-[120px] text-right">
                           {prettyKey}
                         </code>
-                        <span className="line-through opacity-70">{show(oldVal)}</span>
+                        <span className="line-through opacity-70">
+                          {show(oldVal)}
+                        </span>
                         <span>→</span>
-                        <b className={changed ? "text-rose-700" : ""}>{show(newVal)}</b>
+                        <b className={changed ? "text-rose-700" : ""}>
+                          {show(newVal)}
+                        </b>
                       </div>
                     );
                   }
                   // fallback: backend šalje samo NOVU vrijednost => ne znamo da li je zaista promijenjeno
-                    return (
-                      <div key={k} className="flex items-center gap-2">
-                        <code className="text-[11px] px-1 rounded bg-white border min-w-[120px] text-right">
-                          {prettyKey}
-                        </code>
-                        <span>→</span>
-                        <b>{show(v)}</b>
-                      </div>
-                    );
-                  
+                  return (
+                    <div key={k} className="flex items-center gap-2">
+                      <code className="text-[11px] px-1 rounded bg-white border min-w-[120px] text-right">
+                        {prettyKey}
+                      </code>
+                      <span>→</span>
+                      <b>{show(v)}</b>
+                    </div>
+                  );
                 })}
               </div>
             )}
@@ -267,12 +560,16 @@ function DetailsCell({ value }: { value: unknown }) {
                   <tbody>
                     {restEntries.map(([k, v]) => (
                       <tr key={k} className="border-b last:border-0">
-                        <td className="px-2 py-1 align-top text-gray-500 whitespace-nowrap">{k}</td>
-                        <td className="px-2 py-1">
+                        <td className="px-2 py-1 align-top text-gray-500 whitespace-nowrap">
+                          {keyTranslations[k] ?? k}
+                        </td>
+                        <td className="px-2 py-1 break-all">
                           {typeof v === "object" ? (
-                            <pre className="whitespace-pre-wrap">{tryStringify(v)}</pre>
+                            <pre className="whitespace-pre-wrap break-words">
+                              {tryStringify(v)}
+                            </pre>
                           ) : (
-                            String(v)
+                            <span className="break-words">{String(v)}</span>
                           )}
                         </td>
                       </tr>
@@ -282,16 +579,16 @@ function DetailsCell({ value }: { value: unknown }) {
               </div>
             )}
           </div>
-        </details>
+        </div>
       )}
 
-      {/* RAW JSON kao zaseban padajući blok sa stručnijim nazivom */}
+      {/* RAW JSON kao zaseban padajući blok sa stručnijim nazivom
       <details>
         <summary className="cursor-pointer select-none text-xs text-gray-600">Rohdaten</summary>
         <pre className="bg-gray-50 p-2 rounded border overflow-auto max-h-64 whitespace-pre-wrap text-[11px]">
           {tryStringify(obj)}
         </pre>
-      </details>
+      </details> */}
     </div>
   );
 }
@@ -333,8 +630,6 @@ export default function AuditLogViewer() {
     const p = new URLSearchParams();
     p.set("page", String(page));
     p.set("page_size", String(pageSize));
-    if (method) p.set("method", method);
-    if (debouncedPath) p.set("path", debouncedPath);
     if (status) p.set("status_code", status);
     if (from) p.set("from", from);
     if (to) p.set("to", to);
@@ -425,7 +720,7 @@ export default function AuditLogViewer() {
       // 1) Preuzmi sve redove unutar razumne granice (prilagodi po potrebi)
       const p = new URLSearchParams(query);
       p.set("page", "1");
-      p.set("page_size", "10000");
+      p.set("page_size", "500");
 
       const res = await fetch(`${API_URL}?${p.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -458,8 +753,22 @@ export default function AuditLogViewer() {
         const cols = headers.map((h) => {
           // @ts-ignore
           let v = r[h as keyof AuditLog] as any;
-          if (h === "timestamp") v = fmtDate(r.timestamp);
-          if (h === "details") v = tryStringify(r.details);
+          if (h === "timestamp") {
+            const d = new Date(r.timestamp ?? "");
+            v = isNaN(d.getTime())
+              ? r.timestamp ?? ""
+              : d.toLocaleString("de-AT");
+          }
+          
+          if (h === "details") {
+            try {
+              // compact details in one line of JSON
+              v = JSON.stringify(r.details);
+            } catch {
+              v = String(r.details ?? "");
+            }
+          }
+          
           if (typeof v === "boolean") v = v ? "true" : "false";
           if (v == null) v = "";
           const s = String(v).replaceAll('"', '""');
@@ -481,6 +790,8 @@ export default function AuditLogViewer() {
     }
   }
 
+  const navigate = useNavigate();
+
   return (
     <div className="p-6">
       <div className="max-w-7xl mx-auto">
@@ -494,14 +805,23 @@ export default function AuditLogViewer() {
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold">Audit-Protokoll</h1>
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 px-3 py-2 bg-white rounded-2xl shadow hover:shadow-md border">
-                <input
-                  type="checkbox"
-                  checked={autoRefresh}
-                  onChange={(e) => setAutoRefresh(e.target.checked)}
-                />
-                Auto-Refresh
-              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-3 py-2 rounded bg-gray-200 text-gray-900 hover:bg-gray-300"
+                  onClick={() => navigate("/dashboard")}
+                >
+                  ◀ Zurück zum Dashboard
+                </button>
+
+                <label className="flex items-center gap-2 px-3 py-2 bg-white rounded-2xl shadow hover:shadow-md border">
+                  <input
+                    type="checkbox"
+                    checked={autoRefresh}
+                    onChange={(e) => setAutoRefresh(e.target.checked)}
+                  />
+                  Auto-Refresh
+                </label>
+              </div>
 
               <button
                 onClick={exportCSV}
@@ -531,7 +851,10 @@ export default function AuditLogViewer() {
                   className="flex items-center gap-2 px-3 py-2 bg-white rounded-2xl shadow hover:shadow-md border"
                   title="Neu laden"
                 >
-                  <RefreshCcw size={16} className={loading ? "animate-spin" : ""} />
+                  <RefreshCcw
+                    size={16}
+                    className={loading ? "animate-spin" : ""}
+                  />
                   Reload
                 </button>
                 <button
@@ -602,24 +925,7 @@ export default function AuditLogViewer() {
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs text-gray-500">Methode</label>
-                <select
-                  value={method}
-                  onChange={(e) => {
-                    setMethod(e.target.value);
-                    setPage(1);
-                  }}
-                  className="border rounded-xl px-2 py-2 w-full"
-                >
-                  <option value="">Alle</option>
-                  {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              
 
               <div>
                 <label className="text-xs text-gray-500">Statuscode</label>
@@ -635,19 +941,7 @@ export default function AuditLogViewer() {
                 />
               </div>
 
-              <div>
-                <label className="text-xs text-gray-500">Pfad</label>
-                <input
-                  value={path}
-                  onChange={(e) => {
-                    setPath(e.target.value);
-                    setPage(1);
-                  }}
-                  className="border rounded-xl px-2 py-2 w-full"
-                  placeholder="/api/tasks/…"
-                />
-              </div>
-
+              
               <div>
                 <label className="text-xs text-gray-500">Von</label>
                 <input
@@ -685,22 +979,24 @@ export default function AuditLogViewer() {
           </div>
 
           {/* Table */}
-          <div className="bg-white border rounded-2xl shadow-sm overflow-auto">
-            <table className="min-w-full text-sm">
+          <div className="bg-white border rounded-2xl shadow-sm overflow-y-auto">
+            <table className="min-w-full table-fixed text-sm">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr className="border-b">
-                  <th className="text-left p-3 font-medium">Datum/Uhrzeit</th>
-                  <th className="text-left p-3 font-medium">User</th>
-                  <th className="text-left p-3 font-medium">Aktion</th>
-                  <th className="text-left p-3 font-medium">Projekt</th>
-                  <th className="text-left p-3 font-medium">OK</th>
-                  <th className="text-left p-3 font-medium">Methode</th>
-                  <th className="text-left p-3 font-medium">Pfad</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-left p-3 font-medium">IP</th>
-                  <th className="text-left p-3 font-medium">Details</th>
+                  <th className="text-left p-3 font-medium w-[11%]">
+                    Datum/Uhrzeit
+                  </th>
+                  <th className="text-left p-3 font-medium w-[8%]">User</th>
+                  <th className="text-left p-3 font-medium w-[8%]">Aktion</th>
+                  <th className="text-left p-3 font-medium w-[8%]">Projekt</th>
+                  <th className="text-left p-3 font-medium w-[6%]">OK</th>
+                  
+                  <th className="text-left p-3 font-medium w-[6%]">Status</th>
+                  <th className="text-left p-3 font-medium w-[8%]">IP</th>
+                  <th className="text-left p-3 font-medium w-[24%]">Details</th>
                 </tr>
               </thead>
+
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id} className="border-t align-top">
@@ -725,7 +1021,6 @@ export default function AuditLogViewer() {
                       {getProjectName(r.details) || "–"}
                     </td>
 
-
                     <td className="p-3 whitespace-nowrap">
                       {r.ok ? (
                         <span className="inline-flex items-center gap-1 text-emerald-600">
@@ -739,14 +1034,14 @@ export default function AuditLogViewer() {
                         </span>
                       )}
                     </td>
-                    <td className="p-3 whitespace-nowrap">{r.method}</td>
-                    <td className="p-3">{r.path}</td>
+                   
+
                     <td className="p-3 whitespace-nowrap">
                       <StatusBadge code={r.status_code ?? undefined} />
                     </td>
                     <td className="p-3 whitespace-nowrap">{r.ip ?? ""}</td>
 
-                    <td className="p-3">
+                    <td className="p-3 align-top break-words overflow-hidden">
                       <DetailsCell value={r.details} />
                     </td>
                   </tr>

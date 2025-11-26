@@ -18,6 +18,7 @@ class StructSegment(BaseModel):
     level: str            # "ebene" | "stiege" | "bauteil"
     id: int
     name: str
+    structure_path: Optional[str] = None
     activities: List[StructActivity]
 
 class StructureTimelineResponse(BaseModel):

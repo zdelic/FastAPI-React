@@ -11,6 +11,7 @@ from app.models.task import Task
 from app.models.project import Project
 
 
+
 SENSITIVE = {"password","pass","token","authorization","secret","api_key","refresh_token","pin","otp"}
 
 def _task_location_dict(t) -> dict:
@@ -120,19 +121,42 @@ def log_protocol(
     uid_final = str(user_id) if user_id is not None else uid2
     uname_final = user_name if user_name is not None else uname2
 
+    # NEW: ako imamo user_id ali još nemamo ime, probaj ga dohvatiti iz baze
+    if uid_final and not uname_final:
+        try:
+            uid_int = int(uid_final)
+            u = db.get(User, uid_int) if hasattr(db, "get") else db.query(User).get(uid_int)
+            if u:
+                uname_final = (
+                    getattr(u, "name", None)
+                    or getattr(u, "username", None)
+                    or getattr(u, "email", None)
+                )
+        except Exception:
+            # nikad ne smije srušiti log
+            pass
+
     det = details
     if isinstance(det, dict):
+        # automatski ubaci user_id i user_name u details,
+        # ali ne prepisuj ako backend već šalje te ključeve
+        if uid_final and "user_id" not in det:
+            det.setdefault("user_id", uid_final)
+        if uname_final and "user_name" not in det:
+            det.setdefault("user_name", uname_final)
         try:
             det = enrich_details(action, det, db)
         except Exception:
-            # obogaćivanje je "best-effort" – nikad ne smije srušiti log
             pass
+    else:
+        # ako nije dict, samo proslijedi dalje
+        det = details
     det = _prepare_details(det) if det is not None else None
-    
+
     entry = ProtocolEntry(
         timestamp=datetime.utcnow(),
         user_id=uid_final,
-        user_name=uname_final,     # ⇐ upiši ime u kolonu
+        user_name=uname_final,   # <- sada će biti punjeno
         action=action,
         ok=ok,
         method=method,
@@ -146,6 +170,7 @@ def log_protocol(
     db.commit()
     db.refresh(entry)
     return entry
+
 
 def _task_project_dict(t) -> dict | None:
     """

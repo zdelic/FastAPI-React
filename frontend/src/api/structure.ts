@@ -17,6 +17,7 @@ export type StructSegment = {
   level: "ebene" | "stiege" | "bauteil";
   id: number;
   name: string;
+  structure_path?: string;
   activities: StructActivity[];
 };
 

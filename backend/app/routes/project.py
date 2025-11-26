@@ -42,10 +42,10 @@ from app.main import UPLOAD_DIR
 def project_to_dict(p):
     return {
         "id": p.id,
-        "name": p.name,
-        "description": p.description,
-        "start_date": p.start_date,
-        "image_url": getattr(p, "image_url", None),  # 👈 garantiramo ključ
+        "Name": p.name,
+        "Beschreibung": p.description,
+        "Startdatum": p.start_date,
+        "Bild_URL": getattr(p, "image_url", None),  # 👈 garantiramo ključ
     }
 
 
@@ -90,6 +90,25 @@ def create_project(
         proj.image_url = str(request.url_for("uploads", path=fname))
         db.commit()
         db.refresh(proj)
+    
+        log_protocol(
+        db,
+        request,
+        action="project.create",
+        ok=True,
+        status_code=201,
+        details={
+            "project_id": proj.id,
+            "project_name": proj.name,
+            # sve bitne vrijednosti u "changes" – isto kao kod update
+            "changes": {
+                "name": proj.name,
+                "description": proj.description,
+                "start_date": str(proj.start_date) if proj.start_date else None,
+            },
+        },
+    )
+
 
     return proj
 
@@ -178,10 +197,18 @@ def update_project(
     db.refresh(db_project)
 
     log_protocol(
-        db, request,
-        action="project.update", ok=True, status_code=200,
-        details={"project_id": project_id, "changes": data},
+        db,
+        request,
+        action="project.update",
+        ok=True,
+        status_code=200,
+        details={
+            "project_id": project_id,
+            "project_name": db_project.name,
+            "changes": data,
+        },
     )
+
     return db_project
 
 
@@ -232,9 +259,31 @@ def add_user_to_project(
     project.users.append(user)
     db.commit()
     db.refresh(project)
-    log_protocol(db, request, action="project.user.add", ok=True, status_code=201,
-                 details={"project_id": project_id, "user_id": user.id})
+
+    user_name = (
+        getattr(user, "username", None)
+        or getattr(user, "name", None)
+        or getattr(user, "email", None)
+        or str(user.id)
+    )
+
+    log_protocol(
+        db,
+        request,
+        action="project.user.add",
+        ok=True,
+        status_code=201,
+        details={
+            "project_id": project.id,
+            "project_name": project.name,
+            "user_id": user.id,
+            "user_name": user_name,
+        },
+    )
+
     return user
+
+
 
 
 @router.delete("/{project_id}/users/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
@@ -248,11 +297,37 @@ def remove_user_from_project(
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
 
+    user = db.get(UserModel, user_id)
+
     project.users = [u for u in project.users if u.id != user_id]
     db.commit()
-    log_protocol(db, request, action="project.user.remove", ok=True, status_code=204,
-                 details={"project_id": project_id, "user_id": user_id})
+
+    user_name = None
+    if user:
+        user_name = (
+            getattr(user, "username", None)
+            or getattr(user, "name", None)
+            or getattr(user, "email", None)
+            or str(user.id)
+        )
+
+    log_protocol(
+        db,
+        request,
+        action="project.user.remove",
+        ok=True,
+        status_code=204,
+        details={
+            "project_id": project.id,
+            "project_name": project.name,
+            "user_id": user_id,
+            "user_name": user_name,
+        },
+    )
+
     return
+
+
 
 
 @router.put("/{project_id}/users", response_model=List[UserRead], dependencies=[Depends(require_admin)])
@@ -273,9 +348,23 @@ def replace_project_users(
     project.users = users
     db.commit()
     db.refresh(project)
-    log_protocol(db, request, action="project.users.replace", ok=True, status_code=200,
-                 details={"project_id": project_id, "user_ids": payload.user_ids})
+
+    log_protocol(
+        db,
+        request,
+        action="project.users.replace",
+        ok=True,
+        status_code=200,
+        details={
+            "project_id": project.id,
+            "project_name": project.name,
+            "user_ids": [u.id for u in users],
+        },
+    )
+
     return project.users
+
+
 
 
 
@@ -349,10 +438,12 @@ def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
 
-    # (opcionalno) obriši i file s diska ako ima image_url koji pokazuje na naš UPLOAD_DIR
+    # ⬅️ Spasi ime prije brisanja
+    project_name = project.name
+
+    # obriši sliku ako postoji
     try:
         if project.image_url:
-            # izvući ime datoteke ako je u /uploads/...
             fname = project.image_url.split("/")[-1]
             fpath = Path(UPLOAD_DIR) / fname
             if fpath.exists():
@@ -362,9 +453,23 @@ def delete_project(
 
     db.delete(project)
     db.commit()
-    log_protocol(db, request, action="project.delete", ok=True, status_code=204,
-                 details={"project_id": project_id})
+
+    # ⬅️ Sad koristi spremljeno ime
+    log_protocol(
+        db,
+        request,
+        action="project.delete",
+        ok=True,
+        status_code=204,
+        details={
+            "project_id": project_id,
+            "project_name": project_name,
+        },
+    )
+
     return
+
+
 
 
 @router.post("/{project_id}/image", response_model=ProjectRead, dependencies=[Depends(require_admin)])
