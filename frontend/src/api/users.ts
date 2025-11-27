@@ -1,5 +1,5 @@
 // src/api/users.ts
-import { api } from "./client";
+import api from "./axios";
 
 /** Dozvoljene role */
 export const ROLES = ["admin", "bauleiter", "polier", "sub"] as const;

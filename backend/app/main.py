@@ -28,7 +28,7 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
-     allow_origins=["http://localhost:3000", "http://localhost:5173"],
+     allow_origins=["http://localhost:3000", "http://localhost:5173", "http://172.20.1.25:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,7 +57,7 @@ from app.routes import (
 from app.routes.task_structure import router as structure_router
 
 # Protokol (bez bindera)
-app.include_router(protocol.router)
+app.include_router(protocol.router, dependencies=[Depends(bind_user)])
 
 # Ostale rute – binder da puni request.state.user
 app.include_router(project.router,        dependencies=[Depends(bind_user)])

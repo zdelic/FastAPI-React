@@ -87,7 +87,8 @@ def create_project(
         with dest.open("wb") as out:
             shutil.copyfileobj(image.file, out)
 
-        proj.image_url = str(request.url_for("uploads", path=fname))
+        proj.image_url = f"/uploads/{fname}"
+
         db.commit()
         db.refresh(proj)
     

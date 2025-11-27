@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { baseURL } from "../api/axios";
+
 import {
   Search,
   Filter,
@@ -40,7 +42,8 @@ export type AuditListResponse = {
    CONFIG
 ========================= */
 // Podesi na svoj FastAPI endpoint
-const API_URL = "http://127.0.0.1:8000/api/audit-logs";
+const API_URL = `${baseURL.replace(/\/$/, "")}/api/audit-logs`;
+
 
 /* =========================
    UTILS

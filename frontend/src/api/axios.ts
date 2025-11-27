@@ -3,9 +3,33 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from "axios";
 
-// 1) Base URL
-export const baseURL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// 1) Base URL – kombinacija .env + hostname
+const fromEnv = process.env.REACT_APP_API_URL;
 
+let baseURL: string;
+
+if (fromEnv && fromEnv.trim().length > 0) {
+  // ako ikad proradi .env / .env.local, koristi to
+  baseURL = fromEnv.trim();
+} else {
+  const host = window.location.hostname;
+
+  // SERVER – otvaraš app kao http://172.20.1.25:3000
+  if (host === "172.20.1.25") {
+    baseURL = "http://172.20.1.25:8001";
+  }
+  // LOKALNI DEV – http://localhost:3000 ili http://127.0.0.1:3000
+  else if (host === "localhost" || host === "127.0.0.1") {
+    baseURL = "http://127.0.0.1:8001";
+  }
+  // fallback, za svaki slučaj
+  else {
+    baseURL = "http://127.0.0.1:8000";
+  }
+}
+
+console.log("REACT API URL =", fromEnv);
+console.log("axios baseURL =", baseURL);
 
 // 2) Loader bridge (App.tsx ga puni i smije ga “gasiti”)
 export const loaderBridge: {
@@ -87,4 +111,5 @@ export const absoluteUrl = (path: string) => {
   return `${baseURL.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 };
 
+export { baseURL };
 export default api;

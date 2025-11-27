@@ -10,7 +10,8 @@ import {
   IdCard,
   LockKeyhole,
 } from "lucide-react";
-import { api } from "../api/client";
+import { baseURL } from "../api/axios";
+
 import { useNavigate } from "react-router-dom";
 
 type FormState = {
@@ -37,7 +38,8 @@ const roleChipClasses: Record<Role, string> = {
   sub: "bg-sky-600/10 text-sky-600 ring-1 ring-inset ring-sky-600/30",
 };
 
-const API_URL = (api.defaults.baseURL ?? "").replace(/\/$/, "");
+const API_URL = baseURL.replace(/\/$/, "");
+
 const DEFAULT_AVATAR = "/images/default-avatar.png"; 
 
 export default function UsersPage() {
