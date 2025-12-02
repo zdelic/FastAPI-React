@@ -436,9 +436,9 @@ const Dashboard: React.FC = () => {
               <div
                 className="absolute inset-0 bg-cover bg-center"
                 style={{
-                  backgroundImage: `url('${
+                  backgroundImage: `url('${absoluteUrl(
                     p.image_url || "/images/Startseite-Winarsky_01.png"
-                  }')`,
+                  )}')`,
                 }}
               />
 

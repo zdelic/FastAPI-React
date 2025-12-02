@@ -25,6 +25,25 @@ import {
 import { type BgEvent } from "../utils/calendarAT";
 import CustomDatePicker from "../components/CustomDatePicker";
 
+type QuestionFieldType = "boolean" | "text" | "image";
+
+type TaskQuestion = {
+  id: number;
+  aktivitaet_id: number;
+  sort_order: number;
+  label: string;
+  field_type: QuestionFieldType;
+  required: boolean;
+};
+
+type TaskQuestionAnswer = {
+  question_id: number | null;
+  label: string;
+  field_type: QuestionFieldType;
+  bool_value: boolean | null;
+  text_value: string | null;
+  image_path: string | null;
+};
 
 
 
@@ -151,6 +170,8 @@ const TaskCalendar = () => {
   const isProcessModelFiltered = selectedProcessModels.length > 0;
 
   const toDateOnly = (d?: string | null) => (d ? d : null);
+
+   
 
   function computeStatusFromIst(u: EditTaskModalTask) {
     const hasStart = !!u.start_ist;
@@ -850,6 +871,153 @@ const TaskCalendar = () => {
     z-index: 9999 !important;
   }
 `;
+  
+  
+const [questionDialog, setQuestionDialog] = useState<{
+  taskId: number;
+  taskTitle: string;
+  questions: TaskQuestion[];
+  answers: TaskQuestionAnswer[];
+  saving: boolean;
+} | null>(null);
+
+  
+async function openQuestionDialogForTask(taskId: number, taskTitle: string) {
+  console.log("🧩 openQuestionDialogForTask START", { taskId, taskTitle });
+
+  try {
+    const res = await api.get<TaskQuestion[]>(`/tasks/${taskId}/questions`, {
+      meta: { showLoader: false },
+    });
+
+    console.log("🧩 /tasks/:id/questions odgovor:", res.status, res.data);
+
+    const qs = Array.isArray(res.data) ? res.data : [];
+
+    if (!qs.length) {
+      alert(
+        "Für diese Aufgabe wurden keine Checklisten-Fragen gefunden.\n" +
+          "(Backend /tasks/" +
+          taskId +
+          "/questions liefert ein leeres Ergebnis.)"
+      );
+      return;
+    }
+
+    const answers: TaskQuestionAnswer[] = qs.map((q) => ({
+      question_id: q.id,
+      label: q.label,
+      field_type: q.field_type,
+      bool_value: null,
+      text_value: "",
+      image_path: null,
+    }));
+
+    setQuestionDialog({
+      taskId,
+      taskTitle,
+      questions: qs,
+      answers,
+      saving: false,
+    });
+    console.log(
+      "🧩 questionDialog postavljen, modal bi SADA trebao biti vidljiv."
+    );
+  } catch (err: any) {
+    console.error("Fehler beim Laden der Task-Fragen:", err);
+    alert(
+      "Fehler beim Laden der Checklisten-Fragen für diese Aufgabe.\n" +
+        "Bitte prüfe Backend-Route /tasks/" +
+        taskId +
+        "/questions."
+    );
+  }
+}
+
+
+const updateAnswer = (index: number, patch: Partial<TaskQuestionAnswer>) => {
+  setQuestionDialog((prev) => {
+    if (!prev) return prev;
+    const answers = [...prev.answers];
+    answers[index] = { ...answers[index], ...patch };
+    return { ...prev, answers };
+  });
+};
+
+const uploadAnswerImage = async (index: number, file: File) => {
+  try {
+    const form = new FormData();
+    form.append("file", file);
+
+    // ako koristiš neki drugi endpoint, promijeni putanju ovdje:
+    const res = await api.post<{ path: string }>(
+      "/upload/task-check-image",
+      form,
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        meta: { showLoader: false },
+      }
+    );
+    updateAnswer(index, { image_path: res.data.path });
+  } catch (err) {
+    console.error("Bild-Upload Fehler:", err);
+    alert("Fehler beim Bild-Upload.");
+  }
+};
+
+  const saveQuestionAnswers = async () => {
+    console.log("💾 saveQuestionAnswers called");
+  if (!questionDialog) return;
+  const { taskId, answers, questions } = questionDialog;
+
+  // validacija obaveznih
+  for (let i = 0; i < answers.length; i++) {
+    const ans = answers[i];
+    const q = questions[i];
+    if (!q.required) continue;
+
+    if (ans.field_type === "boolean" && ans.bool_value === null) {
+      alert(`Bitte Ja/Nein beantworten: "${q.label}"`);
+      return;
+    }
+    if (ans.field_type === "text" && !ans.text_value?.trim()) {
+      alert(`Bitte Text eingeben: "${q.label}"`);
+      return;
+    }
+    if (ans.field_type === "image" && !ans.image_path) {
+      alert(`Bitte ein Bild hochladen: "${q.label}"`);
+      return;
+    }
+  }
+
+  setQuestionDialog((prev) => (prev ? { ...prev, saving: true } : prev));
+
+  try {
+    const payload = answers.map((a) => ({
+      aktivitaet_question_id: a.question_id,
+      label: a.label,
+      field_type: a.field_type,
+      bool_value: a.field_type === "boolean" ? a.bool_value : null,
+      text_value: a.field_type === "text" ? a.text_value : null,
+      image_path: a.field_type === "image" ? a.image_path : null,
+    }));
+
+    await api.post(`/tasks/${taskId}/check-answers`, payload, {
+      meta: { showLoader: false },
+    });
+
+    setQuestionDialog(null);
+  } catch (err) {
+    console.error("Fehler beim Speichern der Antworten:", err);
+    alert("Fehler beim Speichern der Antworten.");
+    setQuestionDialog((prev) => (prev ? { ...prev, saving: false } : prev));
+  }
+};
+
+const closeQuestionDialog = () => setQuestionDialog(null);
+
+
+  
 
   return (
     <div className="p-6 space-y-6">
@@ -870,6 +1038,15 @@ const TaskCalendar = () => {
             title="Struktur-Timeline"
           >
             Struktur-Timeline
+          </button>
+          {/* Tasks-Tabelle */}
+          <button
+            type="button"
+            className="px-3 py-2 rounded bg-blue-500 text-white hover:bg-blue-600"
+            onClick={() => navigate(`/projekt/${id}/tasks-tabelle`)}
+            title="Aufgabenliste mit allen Details"
+          >
+            📋 Aufgabenliste
           </button>
           <button
             className="px-3 py-2 rounded bg-gray-200 text-gray-900 hover:bg-gray-300"
@@ -1036,6 +1213,7 @@ const TaskCalendar = () => {
                 <span className="w-10">Von</span>
                 <div className="dp-light">
                   <CustomDatePicker
+                    key={`skipFrom-${skipFrom}`}
                     value={skipFrom || null}
                     disabled={false}
                     onChange={(v) => setSkipFrom(v ?? "")}
@@ -1047,6 +1225,7 @@ const TaskCalendar = () => {
                 <span className="w-10">Bis</span>
                 <div className="dp-light">
                   <CustomDatePicker
+                    key={`skipTo-${skipTo}`}
                     value={skipTo || null}
                     disabled={false}
                     onChange={(v) => setSkipTo(v ?? "")}
@@ -1182,7 +1361,6 @@ const TaskCalendar = () => {
           onClose={() => setSelectedTask(null)}
           onSave={async (u) => {
             try {
-              // iskoristi helper ako ga već imaš
               const payload = mapToApiPayload
                 ? mapToApiPayload(u)
                 : {
@@ -1196,11 +1374,15 @@ const TaskCalendar = () => {
                     sub_id: u.sub_id ?? null,
                   };
 
+              const willBeDone = !!u.end_ist;
+              const taskId = Number(u.id);
+
+              // 1) prvo snimi task
               await api.put(`/tasks/${u.id}`, payload, {
                 meta: { showLoader: false },
               });
 
-              // osvježi SAMO taj event u kalendaru (bez setEvents([...]))
+              // 2) osvježi event u kalendaru
               const apiCal = calRef.current?.getApi();
               const ev = apiCal?.getEventById(String(u.id));
               if (ev) {
@@ -1219,7 +1401,7 @@ const TaskCalendar = () => {
                 }
               }
 
-              // lokalni cache (po ID-u)
+              // 3) lokalni cache
               setAllTasks((prev) => {
                 const i = prev.findIndex((t) => String(t.id) === String(u.id));
                 if (i < 0) return prev;
@@ -1227,6 +1409,12 @@ const TaskCalendar = () => {
                 copy[i] = { ...copy[i], ...u, status: payload.status };
                 return copy;
               });
+
+              // 4) uvijek kad postoji end_ist -> otvori checklistu
+              if (willBeDone && taskId) {
+                console.log("▶ Öffne Checkliste für Task", taskId);
+                await openQuestionDialogForTask(taskId, u.title ?? "");
+              }
             } catch (err) {
               console.error("PUT /tasks error:", err);
               alert("Speichern fehlgeschlagen.");
@@ -1249,6 +1437,126 @@ const TaskCalendar = () => {
             }
           }}
         />
+      )}
+
+      {questionDialog && (
+        <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h3 className="font-semibold text-lg">
+                Checkliste für "{questionDialog.taskTitle}"
+              </h3>
+              <button
+                type="button"
+                className="text-gray-500 hover:text-gray-800"
+                onClick={closeQuestionDialog}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto px-4 py-3 space-y-3">
+              {questionDialog.questions.map((q, i) => {
+                const ans = questionDialog.answers[i];
+                return (
+                  <div
+                    key={q.id}
+                    className="border rounded-md p-3 flex flex-col gap-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium text-sm">{q.label}</div>
+                      {q.required && (
+                        <span className="text-xs text-red-600 font-semibold">
+                          Pflicht
+                        </span>
+                      )}
+                    </div>
+
+                    {q.field_type === "boolean" && (
+                      <div className="flex items-center gap-3 text-sm">
+                        <label className="flex items-center gap-1">
+                          <input
+                            type="radio"
+                            name={`q-${q.id}`}
+                            checked={ans.bool_value === true}
+                            onChange={() =>
+                              updateAnswer(i, { bool_value: true })
+                            }
+                          />
+                          Ja
+                        </label>
+                        <label className="flex items-center gap-1">
+                          <input
+                            type="radio"
+                            name={`q-${q.id}`}
+                            checked={ans.bool_value === false}
+                            onChange={() =>
+                              updateAnswer(i, { bool_value: false })
+                            }
+                          />
+                          Nein
+                        </label>
+                      </div>
+                    )}
+
+                    {q.field_type === "text" && (
+                      <textarea
+                        className="w-full border rounded p-2 text-sm"
+                        rows={3}
+                        value={ans.text_value ?? ""}
+                        onChange={(e) =>
+                          updateAnswer(i, { text_value: e.target.value })
+                        }
+                        placeholder="Antwort eingeben..."
+                      />
+                    )}
+
+                    {q.field_type === "image" && (
+                      <div className="flex flex-col gap-2 text-sm">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) uploadAnswerImage(i, f);
+                          }}
+                        />
+                        {ans.image_path && (
+                          <img
+                            src={ans.image_path}
+                            alt="Hochgeladenes Bild"
+                            className="max-h-40 rounded border object-contain"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="border-t px-4 py-3 flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded border text-sm"
+                onClick={closeQuestionDialog}
+                disabled={questionDialog.saving}
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-60"
+                onClick={saveQuestionAnswers}
+                disabled={questionDialog.saving}
+              >
+                {questionDialog.saving
+                  ? "Speichere..."
+                  : "Checkliste speichern"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {pageLoading && (

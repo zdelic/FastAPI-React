@@ -17,6 +17,7 @@
     "@types/node": "^16.18.126",
     "@types/react-dom": "^19.1.6",
     "axios": "^1.11.0",
+    "caniuse-lite": "^1.0.30001757",
     "chart.js": "^4.5.0",
     "date-fns": "^4.1.0",
     "date-holidays": "^3.26.1",

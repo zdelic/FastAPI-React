@@ -368,67 +368,6 @@ def replace_project_users(
 
 
 
-
-
-# @router.get("/{project_id}/stats", response_model=Dict[str, Any])
-# def project_stats(
-#     request: Request,
-#     project_id: int,
-#     until: date | None = None,
-#     db: Session = Depends(get_db),
-#     current_user: UserModel = Depends(get_current_user),
-# ) -> Dict[str, Any]:
-#     # 1) validacija pristupa (isti pattern kao u get_project)
-#     project = db.get(ProjectModel, project_id)
-#     if not project:
-#         raise HTTPException(status_code=404, detail="Projekt nicht gefunden")
-
-#     if current_user.role == "sub":
-#         is_member = any(u.id == current_user.id for u in project.users)
-#         has_tasks = (
-#             db.query(TaskModel)
-#             .filter(TaskModel.project_id == project_id, TaskModel.sub_id == current_user.id)
-#             .first()
-#             is not None
-#         )
-#         if not (is_member or has_tasks):
-#             raise HTTPException(status_code=403, detail="Kein Zugriff auf dieses Projekt")
-
-#     # 2) minimalna statistika (sigurna i brza)
-#     total_tasks = db.query(TaskModel).filter(TaskModel.project_id == project_id).count()
-#     # ako nemaš status kolonu, ovo će i dalje raditi (done_count = 0)
-#     done_count = db.query(TaskModel).filter(
-#         TaskModel.project_id == project_id,
-#         getattr(TaskModel, "status", None) == "done"  # fallback: ako nema status-a, bude None == "done" -> False
-#     ).count() if hasattr(TaskModel, "status") else 0
-
-#     open_count = max(total_tasks - done_count, 0)
-
-#     in_progress_count = max(total_tasks - done_count - open_count, 0)
-
-#     return {
-#         "project_id": project_id,
-#         "until": str(until) if until else None,
-
-#         # stari ključevi (koje tvoj frontend trenutno koristi)
-#         "tasks_total": total_tasks,
-#         "tasks_done": done_count,
-#         "tasks_open": open_count,
-
-#         # novi/“friendly” ključevi koje očekuje komponenta
-#         "total": total_tasks,
-#         "done": done_count,
-#         "in_progress": in_progress_count,
-#         "offen": open_count,
-#         "percent_done": (round((done_count / total_tasks) * 10000) / 100) if total_tasks else 0,
-
-#         # IMPORTANT: prazne liste da .map ne puca na frontendu
-#         "by_gewerk": [],
-#     }
-
-
-# --- na vrh file-a već imaš: uuid, shutil, Path, UPLOAD_DIR, require_admin, get_current_user ...
-
 @router.delete("/{project_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_project(
     project_id: int,
@@ -502,7 +441,7 @@ async def upload_project_image(
     with dest.open("wb") as out:
         shutil.copyfileobj(image.file, out)
 
-    proj.image_url = str(request.url_for("uploads", path=fname))
+    proj.image_url = f"/uploads/{fname}"
     db.commit()
     db.refresh(proj)
     return proj

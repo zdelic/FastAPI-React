@@ -1,9 +1,14 @@
 
 from fastapi import Request
-from fastapi import APIRouter, Depends, HTTPException, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, Response, Query, status
 from sqlalchemy.orm import Session, joinedload, load_only
 from app.database import get_db
 from app.models.task import Task
+from app.models.aktivitaet_question import TaskCheckAnswer
+from app.schemas.aktivitaet_question import TaskCheckAnswerCreate, TaskCheckAnswerRead
+from app.models.aktivitaet import Aktivitaet
+from app.models.aktivitaet_question import AktivitaetQuestion
+from app.schemas.aktivitaet_question import AktivitaetQuestionRead
 from app.models.structure import Top, Ebene, Stiege, Bauteil
 from app.models.process import ProcessStep, ProcessModel
 from app.models.gewerk import Gewerk
@@ -11,7 +16,7 @@ from app.models.project import Project
 from app.models.user import User 
 from app.schemas.task import TaskCreate, TaskRead, TaskUpdate, TimelineTask
 from app.schemas.bulk import BulkBody, BulkFilters, BulkUpdate
-from typing import List
+from typing import List, Dict
 from datetime import date, timedelta, datetime
 from sqlalchemy import func, select, or_, and_, case, cast, Integer
 from app.core.protocol import compute_diff, log_protocol
@@ -308,6 +313,7 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
         payload = await request.json()
     except Exception:
         payload = {}
+
     start_map = (payload or {}).get("start_map") or {}
     start_map_top: dict[str, str] = (start_map or {}).get("top") or {}
     filters = (payload or {}).get("filters") or {}
@@ -329,14 +335,13 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
             pass
         tops_q = tops_q.filter(Top.id.in_(top_ids))
     tops = tops_q.all()
+
     # ograniči purge na već filtrirane TOP-ove (sigurnosna brana)
     allowed_top_ids = {t.id for t in tops}
-    # ne purgaj nikad one koji imaju datum u start_map_top
     safe_purge_ids = [
         tid for tid in purge_top_ids
         if tid in allowed_top_ids and str(tid) not in start_map_top
     ]
-
 
     # PURGE: obriši sve taskove za topove bez datuma (ili kojima je datum obrisan)
     if safe_purge_ids:
@@ -344,18 +349,18 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
             Task.project_id == project_id,
             Task.top_id.in_(safe_purge_ids)
         ).delete(synchronize_session=False)
-        db.commit()
-
 
     created_tasks: list[Task] = []
-    all_changes: list[dict] = []   # 👈 nova lista za sve promjene
+    updated_task_ids: list[int] = []
+    all_changes: list[dict] = []
 
+    # 3) za svaki TOP regeneriraj/generiraj taskove iz process modela
     for top in tops:
         model = find_process_model(top, db)
         if not model:
             continue
 
-        # dohvatimo hijerarhiju za lijep naziv
+        # hijerarhija radi loga
         ebene = db.query(Ebene).get(top.ebene_id) if getattr(top, "ebene_id", None) else None
         stiege = ebene.stiege if ebene else None
         bauteil = stiege.bauteil if stiege else None
@@ -363,14 +368,32 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
         existing_tasks = db.query(Task).filter_by(top_id=top.id).all()
         existing_task_map = {t.process_step_id: t for t in existing_tasks}
 
+        # ******** NOVO – fallback za nove TOP-ove ********
         base_str = start_map_top.get(str(top.id))
-        if not base_str:
-            continue
 
-        try:
-            base_date = date.fromisoformat(base_str[:10])
-        except Exception:
-            continue
+        # ako mapa NEMA datum za ovaj top
+        if not base_str:
+            if existing_tasks:
+                # ima već taskove → ne diramo (nema razloga mijenjati bez datuma)
+                continue
+            # nema taskova → pokušaj koristiti start_date projekta
+            if project.start_date:
+                base_date = project.start_date
+            else:
+                # ni projekt nema start → preskoči ovaj top
+                continue
+        else:
+            try:
+                base_date = date.fromisoformat(base_str[:10])
+            except Exception:
+                # loš format → ako ima taskove, preskoči; ako nema, opet probaj projekt
+                if existing_tasks:
+                    continue
+                if project.start_date:
+                    base_date = project.start_date
+                else:
+                    continue
+        # ******** kraj NOVOG dijela ********
 
         current_date = next_workday(base_date)
 
@@ -380,12 +403,9 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
         )
 
         for step in steps:
-            task = existing_task_map.get(step.id)
             duration = step.duration_days or 1
             start_soll = next_workday(current_date)
             end_soll = add_workdays(start_soll, duration)
-
-            change_entry: dict | None = None
 
             location = {
                 "project": project.name,
@@ -395,8 +415,21 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
                 "top": top.name,
             }
 
+            task = existing_task_map.get(step.id)
+            change_entry: dict | None = None
+
             if not task:
-                # novi task – samo ga logiramo kao promjenu (stari = null)
+                # 👉 NOVI TASK ZA OVAJ KORAK
+                task = Task(
+                    project_id=project_id,
+                    top_id=top.id,
+                    process_step_id=step.id,
+                    start_soll=start_soll,
+                    end_soll=end_soll,
+                )
+                db.add(task)
+                created_tasks.append(task)
+
                 change_entry = {
                     "task_id": None,
                     "task_name": step.activity,
@@ -404,9 +437,8 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
                     "start_soll": {"old": None, "new": str(start_soll)},
                     "end_soll": {"old": None, "new": str(end_soll)},
                 }
-                # ako želiš, ovdje možeš stvarno kreirati novi Task i staviti u created_tasks
             else:
-                # mijenjamo samo taskove bez start_ist (još nisu krenuli)
+                # 👉 postojeći task – update samo ako još nije krenuo
                 if task.start_ist is None:
                     start_changed = task.start_soll != start_soll
                     end_changed = task.end_soll != end_soll
@@ -426,36 +458,46 @@ async def sync_tasks(project_id: int, request: Request, db: Session = Depends(ge
                             } if end_changed else None,
                         }
 
-                        # OVDE po želji stvarno primijeni promjenu na task:
-                        # task.start_soll = start_soll
-                        # task.end_soll = end_soll
-                        # db.add(task)
+                        task.start_soll = start_soll
+                        task.end_soll = end_soll
+                        updated_task_ids.append(task.id)
+                        db.add(task)
 
             if change_entry:
                 all_changes.append(change_entry)
 
-            # pomakni current_date ako korak nije paralelan
             if not getattr(step, "parallel", False):
                 current_date = end_soll + timedelta(days=1)
 
-        db.commit()
 
-        details = {
-            "project_id": project_id,
-            "project_name": project.name,              # 👈 ime projekta
-            "created": [t.id for t in created_tasks],
-            # ovdje možeš kasnije dodati npr. "changed_count": len(all_changes)
-        }
+    # 4) commit jednom i log + response IZVAN petlje
+    db.commit()
 
-        log_protocol(
-            db,
-            request,
-            action="task.sync",
-            ok=True,
-            status_code=200,
-            details=details,
-        )
-        return created_tasks
+    # refresh za nove taskove radi response_model-a
+    for t in created_tasks:
+        db.refresh(t)
+
+    details = {
+        "project_id": project_id,
+        "project_name": project.name,
+        "purged_top_ids": safe_purge_ids,
+        "created_ids": [t.id for t in created_tasks],
+        "updated_ids": updated_task_ids,
+        "changes": all_changes,
+    }
+
+    log_protocol(
+        db,
+        request,
+        action="task.sync",
+        ok=True,
+        status_code=200,
+        details=details,
+    )
+
+    # frontend ionako poslije učitava timeline, pa je dovoljno vratiti nove taskove
+    return created_tasks
+
 
 
 
@@ -1220,3 +1262,190 @@ def project_stats(
         "percent_done": percent_done,
         "by_gewerk": by_gewerk_list,  # ⚠️ nikad prazni string kao ime
     }
+
+
+@router.post(
+    "/tasks/{task_id}/check-answers",
+    response_model=List[TaskCheckAnswerRead],
+    status_code=status.HTTP_201_CREATED,
+)
+def save_task_check_answers(
+    task_id: int,
+    data: List[TaskCheckAnswerCreate],
+    db: Session = Depends(get_db),
+):
+    """
+    Spremi odgovore na dodatna pitanja za jedan task.
+    (Koristit će se kada u UI označiš task kao završen.)
+    """
+    task = db.query(Task).get(task_id)
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task nicht gefunden",
+        )
+
+    created: list[TaskCheckAnswer] = []
+
+    for item in data:
+        ans = TaskCheckAnswer(
+            task_id=task_id,
+            aktivitaet_question_id=item.aktivitaet_question_id,
+            label=item.label,
+            field_type=item.field_type,
+            bool_value=item.bool_value,
+            text_value=item.text_value,
+            image_path=item.image_path,
+        )
+        db.add(ans)
+        created.append(ans)
+
+    db.commit()
+
+    for ans in created:
+        db.refresh(ans)
+
+    return created
+
+
+
+@router.get(
+    "/tasks/{task_id}/questions",
+    response_model=list[AktivitaetQuestionRead],
+)
+def get_questions_for_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Vrati sva Zusatzfragen za dati task prema process_step → gewerk_id i activity.
+    """
+    task = db.query(Task).get(task_id)
+    if not task:
+        raise HTTPException(404, "Task nicht gefunden")
+
+    step = task.process_step
+    if not step:
+        return []
+
+    gewerk_id = step.gewerk_id          # 🔥 pravilno!
+    activity_name = step.activity       # 🔥 pravilno!
+
+    if not gewerk_id or not activity_name:
+        return []
+
+    aktivitaet = (
+        db.query(Aktivitaet)
+        .filter(
+            Aktivitaet.gewerk_id == gewerk_id,
+            Aktivitaet.name == activity_name,
+        )
+        .first()
+    )
+    if not aktivitaet:
+        return []
+
+    qs = (
+        db.query(AktivitaetQuestion)
+        .filter(AktivitaetQuestion.aktivitaet_id == aktivitaet.id)
+        .order_by(AktivitaetQuestion.sort_order, AktivitaetQuestion.id)
+        .all()
+    )
+
+    return qs
+
+
+
+
+@router.get("/projects/{project_id}/tasks-tabelle")
+def project_tasks_table(
+    project_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Vrati listu taskova za projekat + sve check-answers po tasku,
+    za frontend komponentu ProjectTasksTable.
+    """
+
+    # 1) Učitaj sve taskove za projekat sa strukturom, gewerkom i sub-om
+    tasks: List[Task] = (
+        db.query(Task)
+        .filter(Task.project_id == project_id)
+        .options(
+            joinedload(Task.top)
+                .joinedload(Top.ebene)
+                .joinedload(Ebene.stiege)
+                .joinedload(Stiege.bauteil),
+            joinedload(Task.process_step).joinedload(ProcessStep.gewerk),
+            # ⬆️ namjerno NEMA ProcessStep.model u joinedload-u
+            joinedload(Task.sub),
+        )
+        .all()
+    )
+
+    # 2) Učitaj sve odgovore (TaskCheckAnswer) za ove taskove
+    task_ids = [t.id for t in tasks] or [-1]
+
+    answers = (
+        db.query(TaskCheckAnswer)
+        .filter(TaskCheckAnswer.task_id.in_(task_ids))
+        .all()
+    )
+
+    # grupiši odgovore po task_id
+    answers_by_task: Dict[int, List[TaskCheckAnswer]] = {}
+    for a in answers:
+        answers_by_task.setdefault(a.task_id, []).append(a)
+
+    # 3) Složi JSON kao što frontend očekuje (TaskRow + check_answers)
+    rows = []
+    for t in tasks:
+        top = t.top
+        ebene = top.ebene if top else None
+        stiege = ebene.stiege if ebene else None
+        bauteil = stiege.bauteil if stiege else None
+
+        step = t.process_step
+        # ⬇️ ovdje normalno pristupamo modelu, bez joinedload-a
+        model = step.model if step else None
+        gewerk = step.gewerk if step else None
+        sub_user = t.sub if t.sub_id else None
+
+        row = {
+            "id": t.id,
+            "task": step.activity if step else None,
+            "beschreibung": t.beschreibung,
+            "gewerk_name": gewerk.name if gewerk else None,
+            "bauteil": bauteil.name if bauteil else None,
+            "stiege": stiege.name if stiege else None,
+            "ebene": ebene.name if ebene else None,
+            "top": top.name if top else None,
+            "process_model": model.name if model else None,
+            "start_soll": t.start_soll,
+            "end_soll": t.end_soll,
+            "start_ist": t.start_ist,
+            "end_ist": t.end_ist,
+            "status": t.status,  # "offen" / "in_progress" / "done"
+            "sub_name": sub_user.name if sub_user else None,
+            "check_answers": [],
+        }
+
+        # dodaj check_answers
+        ca_list = answers_by_task.get(t.id, [])
+        for a in ca_list:
+            row["check_answers"].append(
+                {
+                    "id": a.id,
+                    "label": a.label,
+                    "field_type": a.field_type,  # "boolean" | "text" | "image"
+                    "bool_value": a.bool_value,
+                    "text_value": a.text_value,
+                    "image_path": a.image_path,
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                }
+            )
+
+        rows.append(row)
+
+    return rows
+

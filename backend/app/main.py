@@ -10,6 +10,8 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from app.database import Base, engine
 from app.deps import bind_user
+from app.routes import aktivitaet_questions
+from app.routes import upload
 # from app.server_timing import TimingMiddleware  # opcionalno
 
 # --- App (NAPOMENA: kreiraj SAMO JEDNOM) ---
@@ -68,6 +70,8 @@ app.include_router(aktivitaet.router,     dependencies=[Depends(bind_user)])
 app.include_router(task.router,           dependencies=[Depends(bind_user)])
 app.include_router(generate_tasks.router, dependencies=[Depends(bind_user)])
 app.include_router(user.router,           dependencies=[Depends(bind_user)])
+app.include_router(aktivitaet_questions.router, dependencies=[Depends(bind_user)])
+app.include_router(upload.router)
 
 # Auth rute (bez bindera)
 app.include_router(auth.router, tags=["auth"])

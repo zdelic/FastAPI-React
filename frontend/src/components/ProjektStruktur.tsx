@@ -563,13 +563,10 @@ const ProjektStruktur: React.FC<ProjektStrukturProps> = ({
   const buildStartMapForTops = React.useCallback(() => {
     const out: Record<string, string> = {};
 
-    // PAŽNJA: provjeri da su ključevi isti kao gdje spremaš u pendingStart:
-    // 'bauteil:<id>', 'stiege:<id>', 'ebene:<id>', 'top:<id>'
     for (const b of bauteile) {
-      const bStart = pickExplicit(
-        pendingStart[`bauteil:${b.id}`],
-        b.start_soll
-      );
+      const bStart =
+        pickExplicit(pendingStart[`bauteil:${b.id}`], b.start_soll) ??
+        projectStart; // 👈 fallback
 
       for (const s of b.stiegen || []) {
         const sOwn = pickExplicit(pendingStart[`stiege:${s.id}`], s.start_soll);
@@ -587,17 +584,18 @@ const ProjektStruktur: React.FC<ProjektStrukturProps> = ({
               pendingStart[`top:${t.id}`],
               t.start_soll
             );
-            const tStart = tOwn ?? eStart;
+            const tStart = tOwn ?? eStart ?? projectStart ?? null;
 
             if (tStart) {
-              out[String(t.id)] = tStart; // već je YYYY-MM-DD
+              out[String(t.id)] = tStart;
             }
           }
         }
       }
     }
     return out;
-  }, [bauteile, pendingStart]);
+  }, [bauteile, pendingStart, projectStart]);
+  
 
   // 🆕 vrijednosti izvedene iz taskova (po TOP-u)
   const [derivedStartByTop, setDerivedStartByTop] = React.useState<

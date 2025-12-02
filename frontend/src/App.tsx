@@ -10,6 +10,7 @@ import PrivateRoute from "./routes/PrivateRoute";
 import AdminRoute from "./routes/AdminRoute";
 import AuditLogViewer from "./pages/AuditLogViewer";
 import StructureTimelinePage from "./pages/StructureTimeline";
+import ProjectTasksTable from "./pages/ProjectTasksTable";
 
 import { useEffect } from "react";
 import { LoadingProvider, useLoading } from "./context/LoadingContext";
@@ -99,6 +100,10 @@ function AppRoutes() {
       <Route
         path="/projekt/:projectId/struktur-timeline"
         element={<StructureTimelinePage />}
+      />
+      <Route
+        path="/projekt/:id/tasks-tabelle"
+        element={<ProjectTasksTable />}
       />
     </Routes>
   );

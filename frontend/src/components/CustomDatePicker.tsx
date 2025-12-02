@@ -13,8 +13,6 @@ type Props = {
   variant?: "light" | "dark";
 };
 
-
-
 const CalendarInput = React.forwardRef<
   HTMLInputElement,
   {
@@ -41,11 +39,8 @@ const CalendarInput = React.forwardRef<
   ) => {
     const isLight = variant === "light";
 
-    
-
     return (
       <div className="relative inline-flex items-center">
-        {/* floating label */}
         {label ? (
           <span
             className={[
@@ -100,16 +95,12 @@ const CalendarInput = React.forwardRef<
 );
 CalendarInput.displayName = "CalendarInput";
 
-  
-
-
-
-
 function parseISO(d?: string | null): Date | null {
   if (!d) return null;
   const [y, m, day] = d.split("-").map(Number);
   return new Date(y, (m || 1) - 1, day || 1);
 }
+
 function toDates(arr: string[]): Date[] {
   return arr.map((s) => {
     const [y, m, d] = s.split("-").map(Number);
@@ -146,12 +137,26 @@ const CustomDatePicker: React.FC<Props> = ({
     [weekends, holidayDates]
   );
 
+  // 👇 ovdje MI upravljamo otvaranjem
+  const [open, setOpen] = React.useState(false);
+
   const handleChange = (d: Date | null) => {
-    if (!d) return onChange(null);
+    if (!d) {
+      onChange(null);
+      setOpen(false);
+      return;
+    }
+
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
+
     onChange(`${y}-${m}-${day}`);
+
+    // mali delay da pustimo internal logiku pa onda mi zatvorimo
+    setTimeout(() => {
+      setOpen(false);
+    }, 0);
   };
 
   const renderDay = (day: number, date?: Date) => {
@@ -169,6 +174,7 @@ const CustomDatePicker: React.FC<Props> = ({
       locale={de}
       selected={selected}
       onChange={handleChange}
+      onSelect={handleChange}
       highlightDates={highlightDates}
       dateFormat="dd.MM.yyyy"
       customInput={
@@ -181,6 +187,12 @@ const CustomDatePicker: React.FC<Props> = ({
       isClearable
       clearButtonTitle="Datum löschen"
       className="my-datepicker"
+      // 🔽 potpuno kontrolisan open state
+      open={open}
+      onInputClick={() => setOpen(true)}
+      onClickOutside={() => setOpen(false)}
+      onCalendarClose={() => setOpen(false)}
+      shouldCloseOnSelect={false} // ne prepuštamo njemu, mi zatvaramo u handleChange
     />
   );
 };

@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
-import { PlusCircle, Save, Trash2, Workflow } from "lucide-react";
+import {
+  PlusCircle,
+  Save,
+  Trash2,
+  Workflow,
+  ListChecks,
+  X,
+} from "lucide-react";
 
 type Step = {
   id?: number;
@@ -14,6 +21,33 @@ type Step = {
   _key: string;
 };
 
+type AktivitaetOption = {
+  id: number;
+  name: string;
+  gewerk_id: number;
+};
+
+
+type AktivitaetQuestion = {
+  id?: number;
+  aktivitaet_id: number;
+  sort_order: number;
+  label: string;
+  field_type: "boolean" | "text" | "image";
+  required: boolean;
+  _isNew?: boolean;
+  _isDeleted?: boolean;
+};
+
+type QuestionModalState = {
+  aktivitaetId: number;
+  aktivitaetName: string;
+  stepIndex: number;
+  items: AktivitaetQuestion[];
+  isLoading: boolean;
+  isSaving: boolean;
+};
+
 const genKey = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const ProcessModelEditor = () => {
@@ -22,7 +56,13 @@ const ProcessModelEditor = () => {
   const [modelName, setModelName] = useState("");
   const [steps, setSteps] = useState<Step[]>([]);
   const [gewerke, setGewerke] = useState<any[]>([]);
-  const [aktivitaetenMap, setAktivitaetenMap] = useState<{ [stableKey: string]: any[] }>({});
+  const [aktivitaetenMap, setAktivitaetenMap] = useState<
+    Record<string, AktivitaetOption[]>
+  >({});
+
+  const [questionModal, setQuestionModal] = useState<QuestionModalState | null>(
+    null
+  );
 
   // DnD refs
   const dragIndexRef = useRef<number | null>(null);
@@ -180,6 +220,149 @@ const ProcessModelEditor = () => {
     return gewerk?.color || "#ffffff";
   };
 
+  const openQuestionModal = async (step: Step, stepIndex: number) => {
+    const list = aktivitaetenMap[step._key] || [];
+    const selected = list.find(
+      (a) => (a.name || "").trim() === (step.activity || "").trim()
+    );
+
+    if (!selected) {
+      alert("Bitte zuerst eine Aktivität auswählen.");
+      return;
+    }
+
+    setQuestionModal({
+      aktivitaetId: selected.id,
+      aktivitaetName: selected.name,
+      stepIndex,
+      items: [],
+      isLoading: true,
+      isSaving: false,
+    });
+
+    try {
+      const res = await api.get<AktivitaetQuestion[]>(
+        `/aktivitaeten/${selected.id}/questions`
+      );
+      setQuestionModal((prev) =>
+        prev && prev.aktivitaetId === selected.id
+          ? { ...prev, items: res.data, isLoading: false }
+          : prev
+      );
+    } catch (err) {
+      console.error("Fehler beim Laden der Fragen:", err);
+      setQuestionModal((prev) =>
+        prev && prev.aktivitaetId === selected.id
+          ? { ...prev, isLoading: false }
+          : prev
+      );
+    }
+  };
+
+  const handleAddQuestionRow = () => {
+    if (!questionModal) return;
+    const visible = questionModal.items.filter((q) => !q._isDeleted);
+    const nextSort =
+      (visible.length ? Math.max(...visible.map((q) => q.sort_order)) : 0) + 1;
+
+    const newItem: AktivitaetQuestion = {
+      id: undefined,
+      aktivitaet_id: questionModal.aktivitaetId,
+      sort_order: nextSort,
+      label: "",
+      field_type: "boolean",
+      required: false,
+      _isNew: true,
+    };
+
+    setQuestionModal({
+      ...questionModal,
+      items: [...questionModal.items, newItem],
+    });
+  };
+
+  const handleQuestionFieldChange = (
+    index: number,
+    field: keyof AktivitaetQuestion,
+    value: any
+  ) => {
+    if (!questionModal) return;
+    const items = [...questionModal.items];
+    items[index] = { ...items[index], [field]: value };
+    setQuestionModal({ ...questionModal, items });
+  };
+
+  const handleMarkQuestionDeleted = (index: number) => {
+    if (!questionModal) return;
+    const items = [...questionModal.items];
+    const q = items[index];
+
+    if (!q.id) {
+      items.splice(index, 1);
+    } else {
+      items[index] = { ...q, _isDeleted: true };
+    }
+
+    setQuestionModal({ ...questionModal, items });
+  };
+
+  const handleSaveQuestions = async () => {
+    if (!questionModal) return;
+    const { aktivitaetId } = questionModal;
+
+    setQuestionModal({ ...questionModal, isSaving: true });
+
+    try {
+      for (const q of questionModal.items) {
+        // brisanje
+        if (q._isDeleted && q.id) {
+          await api.delete(`/aktivitaeten/aktivitaet-questions/${q.id}`);
+          continue;
+        }
+
+        const payload = {
+          sort_order: q.sort_order,
+          label: q.label,
+          field_type: q.field_type,
+          required: q.required,
+        };
+
+        // novi
+        if (q._isNew) {
+          const res = await api.post<AktivitaetQuestion>(
+            `/aktivitaeten/${aktivitaetId}/questions`,
+            payload
+          );
+          q.id = res.data.id;
+          q._isNew = false;
+        } else if (q.id) {
+          // update
+          await api.put<AktivitaetQuestion>(
+            `/aktivitaeten/aktivitaet-questions/${q.id}`,
+            payload
+          );
+        }
+      }
+
+      // ponovno učitaj čistu listu
+      const fresh = await api.get<AktivitaetQuestion[]>(
+        `/aktivitaeten/${aktivitaetId}/questions`
+      );
+      setQuestionModal({
+        ...questionModal,
+        items: fresh.data,
+        isSaving: false,
+      });
+    } catch (err) {
+      console.error("Fehler beim Speichern der Fragen:", err);
+      alert("Fehler beim Speichern der Fragen.");
+      setQuestionModal({ ...questionModal, isSaving: false });
+    }
+  };
+
+  const closeQuestionModal = () => setQuestionModal(null);
+  
+
   return (
     <div className="min-h-screen bg-gray-100">
       <div
@@ -286,29 +469,41 @@ const ProcessModelEditor = () => {
                   );
 
                   return (
-                    <select
-                      value={step.activity}
-                      onChange={(e) =>
-                        handleStepChange(index, "activity", e.target.value)
-                      }
-                      className="w-full p-2 border rounded"
-                    >
-                      <option value="">-- wählen --</option>
+                    <>
+                      <select
+                        value={step.activity}
+                        onChange={(e) =>
+                          handleStepChange(index, "activity", e.target.value)
+                        }
+                        className="w-full p-2 border rounded"
+                      >
+                        <option value="">-- wählen --</option>
 
-                      {/* Fallback: ako spremljena aktivnost nema match u opcijama (još), dodaj je privremeno */}
-                      {step.activity && !hasMatch && (
-                        <option value={step.activity}>
-                          {step.activity} {/* (bestehend) */}
-                        </option>
-                      )}
+                        {/* Fallback: ako spremljena aktivnost nema match u opcijama (još), dodaj je privremeno */}
+                        {step.activity && !hasMatch && (
+                          <option value={step.activity}>{step.activity}</option>
+                        )}
 
-                      {list.map((a) => (
-                        <option key={a.id} value={(a.name || "").trim()}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
+                        {list.map((a) => (
+                          <option key={a.id} value={(a.name || "").trim()}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => openQuestionModal(step, index)}
+                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-white/80 hover:bg-white shadow-sm"
+                        >
+                          <ListChecks size={14} />
+                          Zusatzfragen
+                        </button>
+                      </div>
+                    </>
                   );
+                  
                 })()}
               </div>
             </div>
@@ -367,6 +562,137 @@ const ProcessModelEditor = () => {
           </button>
         </div>
       </div>
+      {questionModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl max-w-xl w-full mx-4">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="font-semibold text-lg">
+                Zusatzfragen für Aktivität "{questionModal.aktivitaetName}"
+              </h2>
+              <button
+                onClick={closeQuestionModal}
+                className="p-1 rounded hover:bg-gray-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto px-4 py-3 space-y-3">
+              {questionModal.isLoading ? (
+                <p className="text-sm text-gray-500">Lade Fragen...</p>
+              ) : (
+                <>
+                  {questionModal.items.filter((q) => !q._isDeleted).length ===
+                    0 && (
+                    <p className="text-sm text-gray-500 italic">
+                      Noch keine Zusatzfragen definiert.
+                    </p>
+                  )}
+
+                  {questionModal.items
+                    .map((q, qi) => ({ q, qi }))
+                    .filter(({ q }) => !q._isDeleted)
+                    .map(({ q, qi }) => (
+                      <div
+                        key={q.id ?? `new-${qi}`}
+                        className="grid grid-cols-[3rem,1fr,9rem,6rem,auto] gap-2 items-center text-sm"
+                      >
+                        <input
+                          type="number"
+                          className="w-12 p-1 border rounded"
+                          value={q.sort_order}
+                          onChange={(e) =>
+                            handleQuestionFieldChange(
+                              qi,
+                              "sort_order",
+                              Number(e.target.value) || 0
+                            )
+                          }
+                        />
+                        <input
+                          type="text"
+                          className="w-full p-1 border rounded"
+                          placeholder="Fragetext"
+                          value={q.label}
+                          onChange={(e) =>
+                            handleQuestionFieldChange(
+                              qi,
+                              "label",
+                              e.target.value
+                            )
+                          }
+                        />
+                        <select
+                          className="p-1 border rounded"
+                          value={q.field_type}
+                          onChange={(e) =>
+                            handleQuestionFieldChange(
+                              qi,
+                              "field_type",
+                              e.target.value as AktivitaetQuestion["field_type"]
+                            )
+                          }
+                        >
+                          <option value="boolean">Ja / Nein</option>
+                          <option value="text">Text</option>
+                          <option value="image">Bild</option>
+                        </select>
+                        <label className="flex items-center gap-1 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={q.required}
+                            onChange={(e) =>
+                              handleQuestionFieldChange(
+                                qi,
+                                "required",
+                                e.target.checked
+                              )
+                            }
+                          />
+                          Pflicht?
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleMarkQuestionDeleted(qi)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+
+                  <button
+                    type="button"
+                    onClick={handleAddQuestionRow}
+                    className="mt-2 inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                  >
+                    <PlusCircle size={14} />
+                    Frage hinzufügen
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="border-t px-4 py-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeQuestionModal}
+                className="px-3 py-1 text-sm rounded bg-gray-100 hover:bg-gray-200"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveQuestions}
+                disabled={questionModal.isSaving}
+                className="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {questionModal.isSaving ? "Speichere..." : "Speichern"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

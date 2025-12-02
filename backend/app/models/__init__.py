@@ -14,6 +14,8 @@ from .process import ProcessModel, ProcessStep
 
 # (opcionalno) aktivnosti, ako ih koristiš drugdje
 from .aktivitaet import Aktivitaet
+from app.models.aktivitaet_question import AktivitaetQuestion, TaskCheckAnswer
+
 
 __all__ = [
     "Task",
