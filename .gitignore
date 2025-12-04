@@ -1,38 +1,87 @@
+############################
 # PYTHON BACKEND
+############################
+
+# Virtual env
 backend/venv/
-backend/uploads/
+venv/
+ENV/
+env/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# SQLite databases
+# Ignorišemo SVE .db u backendu...
 backend/*.db
 backend/*.sqlite
-backend/test.db
+backend/*.db-wal
+backend/*.db-shm
+# ...ALI ipak želimo da backend/test.db bude u repo:
+!backend/test.db
+
+# Uploads (slike, fajlovi)
+backend/uploads/
+
+# Backend environment configs
 backend/.env
 backend/.env.local
+.env
+.env.local
+server.env
 
-# FRONTEND
+
+############################
+# FRONTEND (React)
+############################
+
 frontend/node_modules/
 frontend/build/
+frontend/coverage/
+frontend/.pnp
+frontend/.pnp.js
+
+# React environment configs
 frontend/.env
 frontend/.env.local
 frontend/.env.development.local
-frontend/.env.production.local
 frontend/.env.test.local
+frontend/.env.production.local
 
-# GLOBAL
-**/__pycache__/
-**/*.pyc
-**/*.pyo
-**/*.pyd
-**/*.log
-*.log
-*.txt
-*.tmp
-
-# IDE
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# MISC
+# Yarn/NPM logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+
+############################
+# LOGS
+############################
+
+*.log
+backend_log.txt
+frontend_log.txt
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+
+############################
+# SYSTEM FILES
+############################
+
+.DS_Store
+Thumbs.db
+
+
+############################
+# EDITOR / IDE
+############################
+
+.vscode/
+.idea/
