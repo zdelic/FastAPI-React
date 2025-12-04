@@ -154,6 +154,10 @@ function actionLabel(action: string) {
     "project.user.add": "Benutzer zum Projekt hinzugefügt",
     "project.user.remove": "Benutzer aus Projekt entfernt",
     "project.users.replace": "Projektbenutzer ersetzt",
+
+    "aktivitaet_question.create": "Zusatzfrage angelegt",
+    "aktivitaet_question.update": "Zusatzfrage aktualisiert",
+    "aktivitaet_question.delete": "Zusatzfrage gelöscht",
   };
   if (MAP[action]) return MAP[action];
   return action.replace(/\./g, " → ").replace(/\b\w/g, (m) => m.toUpperCase());
@@ -240,33 +244,7 @@ function DetailsCell({ value }: { value: unknown }) {
     );
   }
 
-  // posebni prikaz za slučaj kad NEMA promjena (nema `changes`)
-  if ((obj.top_path || obj.process_model_name) && !obj.changes) {
-    return (
-      <details open>
-        <summary className="cursor-pointer text-xs text-gray-600">
-          Strukturierte Details
-        </summary>
 
-        <div className="mt-2 space-y-2">
-          {obj.top_path && (
-            <div className="text-xs border rounded p-2 bg-white break-all">
-
-              <span className="text-gray-500">Pfad:</span> <b>{obj.top_path}</b>
-            </div>
-          )}
-
-          {obj.process_model_name && (
-            <div className="text-xs border rounded p-2 bg-white break-all">
-
-              <span className="text-gray-500">Prozessmodell:</span>{" "}
-              <b>{obj.process_model_name}</b>
-            </div>
-          )}
-        </div>
-      </details>
-    );
-  }
 
   const loc = obj.location as any;
   const locStr = loc
@@ -440,6 +418,32 @@ function DetailsCell({ value }: { value: unknown }) {
           {locStr ? <span> ({locStr})</span> : null}
         </div>
       )}
+
+      {/* Strukturierte Details für Einträge ohne 'changes', aber mit Pfad / Prozessmodell */}
+      {(!changes || Object.keys(changes).length === 0) &&
+        (obj.top_path || obj.process_model_name) && (
+          <details open>
+            <summary className="cursor-pointer text-xs text-gray-600">
+              Strukturierte Details
+            </summary>
+
+            <div className="mt-2 space-y-2">
+              {obj.top_path && (
+                <div className="text-xs border rounded p-2 bg-white break-all">
+                  <span className="text-gray-500">Pfad:</span>{" "}
+                  <b>{obj.top_path}</b>
+                </div>
+              )}
+
+              {obj.process_model_name && (
+                <div className="text-xs border rounded p-2 bg-white break-all">
+                  <span className="text-gray-500">Prozessmodell:</span>{" "}
+                  <b>{obj.process_model_name}</b>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
 
       {/* Sve pripremljene (strukturirane) detalje skupimo u padajući blok */}
       {(changes || restEntries.length > 0 || userId || userName) && (

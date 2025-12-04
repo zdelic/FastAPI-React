@@ -41,6 +41,33 @@ const ProjectTasksTable: React.FC = () => {
 
   const [projectName, setProjectName] = useState<string>("");
   const [rows, setRows] = useState<TaskRow[]>([]);
+  const [filterBauteil, setFilterBauteil] = useState("");
+  const [filterStiege, setFilterStiege] = useState("");
+  const [filterEbene, setFilterEbene] = useState("");
+  const [filterTop, setFilterTop] = useState("");
+  const unique = <T,>(arr: T[]): T[] => Array.from(new Set(arr));
+
+  const bauteile = unique(
+    rows.map((r) => r.bauteil ?? "").filter((v) => v !== "")
+  );
+
+  const stiegen = unique(
+    rows.map((r) => r.stiege ?? "").filter((v) => v !== "")
+  );
+
+  const ebenen = unique(rows.map((r) => r.ebene ?? "").filter((v) => v !== ""));
+
+  const tops = unique(rows.map((r) => r.top ?? "").filter((v) => v !== ""));
+  
+
+  const filteredRows = rows.filter(
+    (r) =>
+      (!filterBauteil || r.bauteil === filterBauteil) &&
+      (!filterStiege || r.stiege === filterStiege) &&
+      (!filterEbene || r.ebene === filterEbene) &&
+      (!filterTop || r.top === filterTop)
+  );
+  
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -132,8 +159,61 @@ const ProjectTasksTable: React.FC = () => {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-cyan-400">
-          📋 Aufgabenliste: <span className="text-black">{projectName}</span>
+          📋 Aktivitätenliste: <span className="text-black">{projectName}</span>
         </h2>
+        <div className="grid grid-cols-4 gap-3 mt-4">
+          <select
+            className="border p-2 rounded"
+            value={filterBauteil}
+            onChange={(e) => setFilterBauteil(e.target.value)}
+          >
+            <option value="">Bauteil (alle)</option>
+            {bauteile.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="border p-2 rounded"
+            value={filterStiege}
+            onChange={(e) => setFilterStiege(e.target.value)}
+          >
+            <option value="">Stiege (alle)</option>
+            {stiegen.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="border p-2 rounded"
+            value={filterEbene}
+            onChange={(e) => setFilterEbene(e.target.value)}
+          >
+            <option value="">Ebene (alle)</option>
+            {ebenen.map((e) => (
+              <option key={e} value={e}>
+                {e}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="border p-2 rounded"
+            value={filterTop}
+            onChange={(e) => setFilterTop(e.target.value)}
+          >
+            <option value="">Top (alle)</option>
+            {tops.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="flex items-center gap-2">
           <button
@@ -192,7 +272,7 @@ const ProjectTasksTable: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {filteredRows.map((row) => {
                   const groupKey = `${row.bauteil || ""}|${row.stiege || ""}|${
                     row.ebene || ""
                   }`;
@@ -279,7 +359,11 @@ const ProjectTasksTable: React.FC = () => {
                                       {a.label}
                                     </span>
                                     <span className="text-[10px] uppercase text-slate-500">
-                                      {a.field_type}
+                                      {a.field_type === "boolean"
+                                        ? "Antwort"
+                                        : a.field_type === "image"
+                                        ? "Bild"
+                                        : a.field_type}
                                     </span>
                                   </div>
 

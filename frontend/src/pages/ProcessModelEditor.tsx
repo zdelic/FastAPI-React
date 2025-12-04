@@ -309,6 +309,7 @@ const ProcessModelEditor = () => {
   const handleSaveQuestions = async () => {
     if (!questionModal) return;
     const { aktivitaetId } = questionModal;
+    const processModelId = id ? Number(id) : undefined;
 
     setQuestionModal({ ...questionModal, isSaving: true });
 
@@ -316,9 +317,12 @@ const ProcessModelEditor = () => {
       for (const q of questionModal.items) {
         // brisanje
         if (q._isDeleted && q.id) {
-          await api.delete(`/aktivitaeten/aktivitaet-questions/${q.id}`);
+          await api.delete(`/aktivitaeten/aktivitaet-questions/${q.id}`, {
+            params: { process_model_id: processModelId },
+          });
           continue;
         }
+        
 
         const payload = {
           sort_order: q.sort_order,
@@ -331,7 +335,10 @@ const ProcessModelEditor = () => {
         if (q._isNew) {
           const res = await api.post<AktivitaetQuestion>(
             `/aktivitaeten/${aktivitaetId}/questions`,
-            payload
+            payload,
+            {
+              params: { process_model_id: processModelId },
+            }
           );
           q.id = res.data.id;
           q._isNew = false;
@@ -339,20 +346,22 @@ const ProcessModelEditor = () => {
           // update
           await api.put<AktivitaetQuestion>(
             `/aktivitaeten/aktivitaet-questions/${q.id}`,
-            payload
+            payload,
+            {
+              params: { process_model_id: processModelId },
+            }
           );
         }
+        
       }
 
       // ponovno učitaj čistu listu
       const fresh = await api.get<AktivitaetQuestion[]>(
         `/aktivitaeten/${aktivitaetId}/questions`
       );
-      setQuestionModal({
-        ...questionModal,
-        items: fresh.data,
-        isSaving: false,
-      });
+
+      setQuestionModal(null);
+      
     } catch (err) {
       console.error("Fehler beim Speichern der Fragen:", err);
       alert("Fehler beim Speichern der Fragen.");

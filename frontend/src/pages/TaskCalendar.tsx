@@ -3,7 +3,7 @@ import FullCalendar from "@fullcalendar/react";
 import resourceTimelinePlugin from "@fullcalendar/resource-timeline";
 import interactionPlugin from "@fullcalendar/interaction";
 import deLocale from "@fullcalendar/core/locales/de";
-import api from "../api/axios";
+import api, { absoluteUrl } from "../api/axios";
 import { useNavigate, useParams } from "react-router-dom";
 import "./TaskCalendar.css";
 import GewerkeFilter from "../components/GewerkeFilter";
@@ -1044,9 +1044,9 @@ const closeQuestionDialog = () => setQuestionDialog(null);
             type="button"
             className="px-3 py-2 rounded bg-blue-500 text-white hover:bg-blue-600"
             onClick={() => navigate(`/projekt/${id}/tasks-tabelle`)}
-            title="Aufgabenliste mit allen Details"
+            title="Aktivitätenliste mit allen Details"
           >
-            📋 Aufgabenliste
+            📋 Aktivitätenliste
           </button>
           <button
             className="px-3 py-2 rounded bg-gray-200 text-gray-900 hover:bg-gray-300"
@@ -1523,7 +1523,7 @@ const closeQuestionDialog = () => setQuestionDialog(null);
                         />
                         {ans.image_path && (
                           <img
-                            src={ans.image_path}
+                            src={absoluteUrl(ans.image_path)}
                             alt="Hochgeladenes Bild"
                             className="max-h-40 rounded border object-contain"
                           />
